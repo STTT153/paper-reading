@@ -7,3 +7,9 @@ This repo contains the notes on research papers, docs and learning materials. I'
 - [ ] Saturn Microarchitecture Manual
 - [ ] RVV Manual Book
 - [ ] Arrow: A RISC-V Vector Accelerator for Machine Learning Inference
+
+## HPC
+- [ ] Communication-Avoiding General Matrix Multiplication within a single GPU
+
+## ANN
+- [x] HNSW paper
