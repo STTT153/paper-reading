@@ -86,3 +86,23 @@ ELEN: 硬件最大支持元素长度
 理论上可以支持 SEWMIN > LMUL * ELEN, 但是这样不会充分使用vector regster
 
 #### 3.4.3. Vector Tail Agnostic and Vector Mask Agnostic vta and vma
+
+`Tail Agnostic`: 对超出VL的部分不处理
+`Mask Agnostic`: 对mask掉的元素不处理
+
+> When a set is marked undisturbed, the corresponding set of destination elements in a vector register group retain the value
+they previously held.
+
+> When a set is marked agnostic, the corresponding set of destination elements in any vector destination operand can either
+retain the value they previously held, or are overwritten with 1s. Within a single vector instruction, each destination element
+can be either left undisturbed or overwritten with 1s, in any combination, and the pattern of undisturbed or overwritten with
+1s is not required to be deterministic when the instruction is executed with the same inputs.
+
+- vta = 0 -> undistturbed 元素一定保持原始值
+- vta = 1 -> agnostic 元素可能被置1
+
+两次同样的instruction当vta set to be one, 可能会出现不同的结果，硬件不做保证。
+
+
+
+#### 3.4.4 Vector Type Illegal `vill`
