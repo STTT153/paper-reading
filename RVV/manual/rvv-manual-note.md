@@ -104,5 +104,43 @@ can be either left undisturbed or overwritten with 1s, in any combination, and t
 两次同样的instruction当vta set to be one, 可能会出现不同的结果，硬件不做保证。
 
 
-
 #### 3.4.4 Vector Type Illegal `vill`
+
+> The vill bit is held in bit XLEN-1 of the CSR to support checking for illegal values with a branch on the sign bit.
+
+`vill` is the MSB of the `vtype` register.
+
+![vtype register](image/vtype-reg.png)
+
+`vtype < 0` <=>`vill == 1`
+
+> All bits of the vtype argument must be considered in determining if the value is supported by the implementation.
+
+当有一条指令想要configure `vtype`的时候，very bit will be checked in determining `vill`
+
+### 3.5 Vector Length Register `vl`
+> The XLEN-bit-wide read-only vl CSR can only be updated by the vset{i}vl{i} instructions, and the *fault-only-first* vector load instruction variants.
+
+*Fault-only-first*: special loads like `vleff.v`, which loads a stream of elements into vector registers utill a fault happens. Then this will modify the `vl` CSR to the number of elements successfully loaded.
+
+### 3.6 Vector Byte Length **vlenb**
+> The XLEN-bit-wide read-only CSR vlenb holds the value VLEN/8, i.e., the vector register length in bytes.
+
+### 3.7 Vector Start Index CSR `vstart`
+> Normally, vstart is only written by hardware on a trap on a vector instruction, with the vstart value representing the
+element on which the trap was taken (either a synchronous exception or an asynchronous interrupt), and at which execution
+should resume after a resumable trap is handled.
+
+> The vstart CSR is writable by unprivileged code, but non-zero vstart values may cause vector instructions to run
+substantially slower on some implementations, so vstart should not be used by application programmers. A few vector
+instructions cannot be executed with a non-zero vstart value and will raise an illegal instruction exception as dened
+below.
+
+通常 允许写 vstart 是为了 异常恢复和系统软件，
+但对普通程序来说，非零 vstart 会大幅降低性能
+
+> Making `vstart` visible to unprivileged code supports user-level threading libraries. 
+
+在user-level thread切换的时候不会陷入到内核
+
+User-level thread v.s. kenel-level thread. 多个user level thread在kernel看来是一个。而kernel-level thread可以真正由内核调度。
