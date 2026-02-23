@@ -146,5 +146,51 @@ below.
 User-level thread v.s. kenel-level thread. 多个user level thread在kernel看来是一个。而kernel-level thread可以真正由内核调度。
 
 ### 3.8 Vector Fixed-Point Rounding Mode Register `vxrm`
-> The vector fixed-point rounding-mode is given a separate CSR address to allow independent access, but is also reflected as a field in vcsr.
+> The vector fixed-point rounding-mode is given a separate CSR address to allow independent access, but is also reflected as a field in `vcsr`.
 
+Rouding相关的信息同时存储在`vxrm` 和 `vcsr`中。
+
+Round to nearest even:优先判断距离，当距离一致时，选择舍入结果为偶数。
+
+> r = v[d-1] & (v[d-2:0]≠0 | v[d])
+
+**距离优先：**
+
+当v[d-1]为0 -> 不进位
+
+当v[d-1]为1 -> 其余位任意位为1 -> 进位
+
+**平局决胜：**
+
+当v[d-1]为1 -> 其余为都为0 -> v[d]决定是否进位
+
+### 3.9 Vector Fixed-Point Sturation Flage `vxsat`
+
+### 3.10 Vector Control and Status Register `vcsr`
+`vcsr[0]`: vxsat
+
+`vcsr[2:1]`: vxrm[1:0]
+
+### 3.11 State of Vector Extension at reset
+
+## 4. Mapping of Vector Elements to Vector Register State
+### 4.1 Mapping for `LMUL` = 1
+
+### 4.2 Mapping for `LMUL` < 1
+> When LMUL < 1, only the rst LMUL*VLEN/SEW elements in the vector register are used. The remaining space in the vector register is treated as part of the tail, and hence must obey the vta setting.
+
+### 4.3 Mapping for `LMUL` > 1
+
+### 4.4 Napping across Mixed-Width Operations
+> The vector ISA is designed to support mixed-width operations without requiring additional explicit rearrangement
+instructions. The recommended software strategy when operating on multiple vectors with different precision values is to
+modify vtype dynamically to keep SEW/LMUL constant (and hence VLMAX constant).
+The following example shows four different packed element widths (8b, 16b, 32b, 64b) in a VLEN=128b implementation.
+The vector register grouping factor (LMUL) is increased by the relative element size such that each group can hold the same
+number of vector elements (VLMAX=8 in this example) to simplify stripmining code.
+
+`VLMAX` = `LMUL` × `VLEN` / `SEW` 
+
+> A vector mask occupies only one vector register regardless of SEW and LMUL.
+Each element is allocated a single mask bit in a mask vector register. The mask bit for element i is located in bit i of the mask
+register, independent of SEW or LMUL.
