@@ -144,3 +144,7 @@ below.
 在user-level thread切换的时候不会陷入到内核
 
 User-level thread v.s. kenel-level thread. 多个user level thread在kernel看来是一个。而kernel-level thread可以真正由内核调度。
+
+### 3.8 Vector Fixed-Point Rounding Mode Register `vxrm`
+> The vector fixed-point rounding-mode is given a separate CSR address to allow independent access, but is also reflected as a field in vcsr.
+
