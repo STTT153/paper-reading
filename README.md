@@ -11,19 +11,21 @@ This repository contains notes on research papers, technical documents, and lear
 - **26.1.31**: Professor advised to look into Near-Memory Computation (NMC), which might help mitigate cache problems caused by long vectors. Observed that many optimizations happen at runtime rather than compile time.
 Research task this week: Survey Xuantie C910 to determine: Whether vector instructions are executed in-order or out-of-order. At what granularity instructions are executed in-order vs. out-of-order (e.g., instruction, micro-op, vector element).
 
+- **26.3.6**: Report the survey on XuanTie910, K3. Continue survey on ara processor. Professor still advise to look at ANN.
+
 
 
 # Reading List
 
-## RISC-V Vector Extension
-- [ ] Saturn Microarchitecture Manual
-- [ ] RVV Manual Book
+## RISC-V Vector Extensionß
+- [x] Saturn Microarchitecture Manual
+- [x] RVV Manual Book
 - [ ] Arrow: A RISC-V Vector Accelerator for Machine Learning Inference
-- [ ] K3
-- [ ] Xuantie-910
+- [x] K3
+- [x] Xuantie-910
 
 ## HPC
-- [ ] Communication-Avoiding General Matrix Multiplication within a single GPU
+- [ ] Communication-Avoidßing General Matrix Multiplication within a single GPU
 
 ## ANN
 - [x] HNSW paper

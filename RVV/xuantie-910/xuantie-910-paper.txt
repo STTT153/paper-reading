@@ -1,0 +1,826 @@
+                           2020 ACM/IEEE 47th Annual International Symposium on Computer Architecture (ISCA)
+
+
+
+
+                 Xuantie-910: A Commercial Multi-Core 12-Stage
+                  Pipeline Out-of-Order 64-bit High Performance
+                     RISC-V Processor with Vector Extension
+                                                                           Industrial Product
+
+                                    Chen Chen, Xiaoyan Xiang, Chang Liu, Yunhai Shang, Ren Guo, Dongqi Liu,
+                                           Yimin Lu, Ziyi Hao, Jiahui Luo, Zhijian Chen, Chunqiang Li,
+                                          Yu Pu, Jianyi Meng*, Xiaolang Yan, Yuan Xie and Xiaoning Qi
+
+                                                                The T-Head Division, Alibaba Cloud
+                                                                 Email: jianyi.mjy@alibaba-inc.com
+
+
+              Abstract—The open source RISC-V ISA has been quickly                        domain-speciﬁc workload (e.g., machine learning accelerators,
+           gaining momentum. This paper presents Xuantie-910, an industry                 network processing, security enclave, storage controllers and
+           leading 64-bit high performance embedded RISC-V processor                      supercomputing), thereby boosting processing efﬁciency and
+           from Alibaba T-Head division. It is fully based on the RV64GCV
+           instruction set and it features custom extensions to arithmetic                reducing design cost; iii) RISC-V is becoming a mainline plat-
+           operation, bit manipulation, load and store, TLB and cache                     form in Unix/Linux OS. The toolchains like GNU/GCC/GDB
+           operations. It also implements the 0.7.1 stable release of RISC-               and LLVM are getting mature, further improving software
+           V vector extension speciﬁcation for high efﬁciency vector pro-                 experience and driving down software development cost.
+           cessing. Xuantie-910 supports multi-core multi-cluster SMP with
+           cache coherence. Each cluster contains 1 to 4 core(s) capable of                 Admittedly, compared with the X86, ARM, MIPS [16]–
+           booting the Linux operating system. Each single core utilizes the              [18], PowerPC, SPARC [11], [20], [21], [23], [30], openRISC
+           state-of-the-art 12-stage deep pipeline, out-of-order, multi-issue             [14], [24], [26] and other ISAs under the hood of popular
+           superscalar architecture, achieving a maximum clock frequency                  GPUs and DSPs, RISC-V is still in its infancy. We see many
+           of 2.5 GHz in the typical process, voltage and temperature
+                                                                                          RISC-V efforts have been making inroads, some of which are
+           condition in a TSMC 12nm FinFET process technology. Each
+           single core with the vector execution unit costs an area of 0.8 mm2            highlighted below:
+           (excluding the L2 cache). The toolchain is enhanced signiﬁcantly
+           to support the vector extension and custom extensions. Through                   • Academic work - The UC Berkeley released the in-order
+           hardware and toolchain co-optimization, to date Xuantie-910                        Rocket core, the out-of-order core BOOM and the open-
+           delivers the highest performance (in terms of IPC, speed, and                      source design generator tool [9], [10]. Both Rocket and
+           power efﬁciency) for a number of industrial control ﬂow and data                   BOOM are capable of booting Linux. ETH Zurich and
+           computing benchmarks, when compared with its predecessors in
+           the RISC-V family. Xuantie-910 FPGA implementation has been                        Università di Bologna offered three ﬂavors of RISC-V
+           deployed in the data centers of Alibaba Cloud, for application-                    cores in the PULP platform [4] - RI5CY (32-bit, 4-stage
+           speciﬁc acceleration (e.g., blockchain transaction). The ASIC                      pipeline), Zero-riscy (32-bit, 2-stage pipeline) and Ariane
+           deployment at low-cost SoC applications, such as IoT endpoints                     (64-bit, 6-stage pipeline) [32]. Also, IIT-Madras has been
+           and edge computing, is planned to facilitate Alibaba’s end-to-end                  working on a series of Shakti RISC-V processors, from a
+           and cloud-to-edge computing infrastructure.
+              Index Terms—RISC-V, multi-core, cache, memory architec-
+                                                                                              3-stage pipeline in-order core to an out-of-order multiple
+           tures, out of order, vector, extension                                             threading core at a target operating frequency of 1.5-2.5
+                                                                                              GHz [5], [13].
+                                     I. I NTRODUCTION                                       • Industrial work - For many years nVIDIA has been
+
+              Cloud computing and IoT applications are fueling the wave                       using RISC-V as the Falcon controllers in the GPUs
+           of semiconductor research and development. The demand for                          [8]. Besides, chip vendors such as SiFive, Microsemi,
+           low-power and cost-effective CPUs is ever increasing. The                          Alibaba T-Head, Andes, Codasip offer a range of silicon-
+           RISC-V is very attractive at this point in time, because: i) as an                 proven 32-bit and 64-bit embedded RISC-V IPs. Re-
+           alternative to closed and costly ISAs, the open and free ISA of                    cently, Western Digital open-sourced the SweRVTM Core
+           RISC-V accelerates processor innovation through open stan-                         [25], which is an industry-quality 32-bit, 2-way super-
+           dard collaboration; ii) its scalability, extensibility, and mod-                   scalar, 9-stage pipeline core. This power-efﬁcient design
+           ularity enable processor customization and optimization for                        reaches over 1.0 GHz operating frequency in a TSMC
+                                                                                              28nm CMOS process technology. With a performance of
+              This paper is part of the Industry Track of ISCA 2020’s program.                up to 5.0 CoreMarks/MHz (based on internal simulations)
+
+
+        978-1-7281-4661-4/20/$31.00 ©2020 IEEE                                       52
+        DOI 10.1109/ISCA45697.2020.00016
+Authorized licensed use limited to: The Chinese University of Hong Kong CUHK(Shenzhen). Downloaded on September 11,2025 at 01:57:36 UTC from IEEE Xplore. Restrictions apply.
+                 and small footprint, it offers compelling capabilities for               to improve the efﬁciency and performance. XT-910 processor
+                 embedded devices for data-intensive edge applications,                   reaches 7.1 CoreMark/MHz, which is 40% faster than U74.
+                 such as storage controllers, industrial IoT, real-time ana-                 The remainder of this paper is organized as follows. Section
+                 lytics in surveillance systems and other smart systems.                  II gives an overview to the XT-910 architecture. Section III
+              Along the RISC-V performance spectrum, most of the                          and section IV introduce the instruction fetch unit and the
+           existing cores are in the microcontroller class [12], [15],                    execution core, respectively. Section V discusses the memory
+           [19], [33]. Some prior arts extended RISC-V to domain-                         sub-system in detail, from the hardware implementation to
+           speciﬁc accelerators/coprocessors [22], [27]–[29]. However,                    the memory management in Linux OS. Section VI brieﬂy
+           as of today very few options are available at the 64-bit high                  goes over the multi-cluster and multi-core SMP. Section VII
+           performance end.                                                               and VIII present the vector instruction extension and non-
+              The Xuantie product series from Alibaba T-Head are high-                    standard instruction extensions that boost the performance of
+           performance embedded computing cores based on RISC-V                           domain-speciﬁc applications. Section IX shows the optimized
+           architecture. The T-head Semiconductor (or Pingtouge Semi-                     compilation tool chain. The experimental results on various
+           conductor) is the business entity of Alibaba Group specializing                benchmarks are provided in section X. Finally, section XI
+           in IC chip designs, with the primary goal of developing the                    draws conclusion of the paper.
+           next-generation of cloud integrated chip architecture, data cen-
+           ters and embedded IoT chip products. The codename Xuantie                                 II. XT-910 A RCHITECTURE OVERVIEW
+           refers to a ”heavy sword made from dark iron” in Chinese                          XT-910 is fully in compliance with the RISC-V RV64GCV
+           tales. The intention of this work is NOT to compete with any                   instruction set speciﬁcation [31]. It supports the standard user
+           non-RISC-V cores on the market, but rather contribute to the                   (U), supervisor (S), and machine (M) privilege modes, as
+           high-end 64-bit RISC-V architecture through open-source col-                   shown in Fig. 1. The RV64GCV designation means that XT-
+           laboration. To date, only the FPGA implementation has been                     910 implements i) the base 64-bit RISC-V ISA (RV64G); ii)
+           deployed in the data centers of Alibaba Cloud, for application-                compact 16-bit-wide instructions (C) as well as the regular
+           speciﬁc acceleration by taking advantage of the custom exten-                  32-bit-wide instructions, and iii) the vector operations (V),
+           sions and the vector extensions. The initial FPGA deployment                   whose standard is still in development. In addition, XT-910 has
+           scale is limited to several hundreds. The implementation on the                more than 50 non-standard instructions to accelerate various
+           Xilinx VU9P FPGA runs at 200 MHz frequency in Linux OS.                        domain-speciﬁc tasks.
+           Taking blockchain transaction acceleration as an example, in
+           terms of per-core performance, the FPGA edition is still 20%
+           higher than the x86 64 Intel Xeon Platinum 8163 CPU that
+           runs at 2.5 GHz in ubuntu16.04 OS. A cost-down ASIC edition
+           has been taped out and the chip is expected in July, 2020. It
+           is projected to run at a frequency of 2.0 - 2.5 GHz, resulting
+           in 12-15X higher performance than the x86 64 Intel Xeon
+           Platinum 8163 CPU counterpart. In addition to internal use,
+           Alibaba has been promoting Xuantie core IP series to facilitate
+           external customers for edge computing applications, such                                    Fig. 1: The U, S, M privilege modes.
+           as AI, edge servers, industrial control and advanced driver-
+           assistance systems (ADAS). Alibaba is also in the preparation                     XT-910 exploits a homogeneous multi-cluster architecture.
+           process of open-source release of Xuantie. By the end of 2022,                 As shown in Fig. 2, a cluster is composed of up to 4 cores.
+           a total volume of 15 million units is expected. The full product               Each core supports a 32/64 KB L1 instruction cache and a
+           portfolio can be viewed at Alibaba T-head semiconductor                        32/64 KB data cache. Each cluster has a shared, inclusive
+           division’s website at https://www.t-head.cn/product.                           8/16-way associated L2 cache, which has up to 8 MB and
+              Prior to our work, the SiFive U74 core [6] was the world’s                  supports both ECC and parity check. Exclusive memory access
+           highest performance RISC-V application processor. It is capa-                  instructions are also supported. XT-910 includes a standard 8-
+           ble of achieving up to 5.1 CoreMark/MHz, an accomplishment                     16 region PMP (Physical Memory Protection) and a SV39
+           on par with the ARM Cortex-A55 core [1]. XT-910 (abbr.                         MMU, which is compatible with the RISC-V Linux speciﬁ-
+           for Xuantie-910) is a 12nm 64-bit RISC-V processor with                        cation. The LSU supports unaligned memory data access. It
+           16 cores clocked at up to 2.5 GHz frequency. It can perform                    also incorporates standard CLint and PLIC multi-core interrupt
+           out-of-order execution and has a triple-issue 12-stage pipeline.               controllers, timers and debuggers, performance monitors and
+           XT-910 implements the RV64GCV, meaning that it supports                        I/O slave interfaces. The supported core conﬁgurations are
+           the base 64-bit RISC-V ISA (RV64G) and supports compact                        listed in Table I.
+           16-bit-wide instructions (C) as well as the standard 32-bit                       To improve the performance, XT-910 features RISC-V vec-
+           wide instructions. It features RISC-V vector extension. It also                tor extension and a series of non-standard custom extensions
+           includes more than 50 non-standard instructions to accelerate                  including extensions to arithmetic, bit manipulation, load &
+           various tasks. The toolchain has also been largely optimized                   store, and TLB & cache operations. In addition, there are
+
+
+
+
+                                                                                     53
+
+Authorized licensed use limited to: The Chinese University of Hong Kong CUHK(Shenzhen). Downloaded on September 11,2025 at 01:57:36 UTC from IEEE Xplore. Restrictions apply.
+           Fig. 2: The diagram of the XT-910 multi-core cluster (4-core
+           conﬁguration).                                                                        (a) The layout of a single-core, with vector exe-
+                                                                                                 cution unit and 512KB L2 cache.
+                         TABLE I: XT-910 core conﬁgurations.
+                          feature                     conﬁguration
+                          Core Number per Cluster     1, 2, 4
+                          L1 Data Cache               32KB, 64KB
+                          L1 Instruction Cache        32KB, 64KB
+                          L2 Cache Size               256KB ∼ 8MB
+                          Vector Extension            yes / no
+
+
+
+           extensions for the MMU to support page-based memory at-
+           tribute management and for the interrupt controller to support
+           permission control. All the extensions are supported by our
+           compilation toolchains. Through hardware conﬁgurations, the
+           non-standard extensions can be disabled, allowing XT-910 to                                      (b) The layout of dual-cores.
+           operate in a mode fully compatible with the standard RISC-V.
+              Fig. 3 shows the exemplar ﬂoorplan of a single-core and
+           dual-cores. The performance from post-layout simulation is                        Fig. 3: The layout of a single-core and dual-cores.
+           summarized in Table II. In a TSMC 12nm FinFET process
+           technology, the implemented silicon areas are 0.8 mm2 and 0.6
+           mm2 for a single-core with and without the vector execution
+           unit, excluding the L2 cache. When operating at 0.8V Vdd,
+           the core reaches over 2.0 GHz frequency using LVT standard
+           cell library and ULVT SRAMs. If we use ULVT standard cells
+           and operate at 1.0V Vdd (i.e., voltage boosting mode), a 2.5
+           GHz main frequency can be achieved. In another experiment
+           with a 7nm FinFET technology, the frequency of a single core
+           can reach 2.8 GHz.
+              TABLE II: XT-910 core performance in a 12nm FinFET.
+
+               Operating frequency    2.0 GHza ∼ 2.5 GHzb (TT 85◦ )
+               Silicon area per core  0.6 (without VEC) / 0.8 (with VEC) mm2
+               Dynamic power          ∼100 μW/MHz per corec (TT 85◦ )
+               a Use LVT 6T-turbo standard cell, ULVT SRAM, 0.8V Vdd
+               b Use 30% ULVT standard cell, ULVT SRAM, 1.0V Vdd
+               c Conﬁguration: 32/64KB L1$, 256/512KB L2$, without VEC
+
+
+
+
+              The pipeline of the XT-910 core is shown in Fig. 4. The
+                                                                                                   Fig. 4: 12-stage pipeline in XT-910 core.
+           ”frontend” of the pipeline consists of 7 stages (i.e., IF ∼
+
+
+
+
+                                                                                     54
+
+Authorized licensed use limited to: The Chinese University of Hong Kong CUHK(Shenzhen). Downloaded on September 11,2025 at 01:57:36 UTC from IEEE Xplore. Restrictions apply.
+           RF). The instruction fetch unit (IFU) uses a hybrid predictor,                 cluding absolute branch, conditional branch, indirect branch,
+           which makes predictions of branch direction, branch address,                   and function call return. This allows program jumps to be
+           function return address and indirect jump address. The                         initiated as early as possible, reducing pipeline bubbles caused
+           instruction decoding unit (IDU) can decode 3 instructions                      by program ﬂow changes. All instructions prefetched through
+           simultaneously and can rename up to 4 instructions using                       branch predictions are cached in the Instruction Buffer (IBUF).
+           physical registers. The out-of-order issue engine can issue up                 When the branch prediction is correct, the IBUF content is
+           to 8 instructions. The ”backend” of the pipeline has multiple                  accumulated. Therefore, even when cache miss occurs, IFU
+           execution units, including two single-cycle ALUs, one single-                  can still provide sufﬁcient instructions to the subsequent IDU
+           cycle branch jump unit, one dual-issue out-of-order load &                     pipeline stage.
+           store unit, two scalar ﬂoating point units and two vector
+           execution units. The multi-cycle ALU unit and the division                     A. Branch Direction Prediction
+           unit share one pipe; the integer multiplication units and the                     To improve the instruction fetch efﬁciency, the IFU strives to
+           two single-cycle ALUs share a pipe. The LSU supports                           predict the jump direction of conditional branch at the earliest
+           unaligned memory data access, and supports multi-mode                          possible pipeline stages. At the IF stage, a small number of
+           multi-stream prefetching to increase data access bandwidth.                    branches are captured and jumps are processed right away,
+           More details about the IFU, the execution core, the memory                     so for these branches the delay penalty is reduced to zero.
+           subsystem and the memory management unit (MMU) will be                         Most of the conditional branches are captured at the IP stage.
+           discussed in the following sessions.                                           The predication is based on the branch history. The prediction
+                                                                                          outcome is stored in multiple memory banks, from which one
+                                                                                          data is selected to be ﬁnal result by a dynamic monitoring
+                           III. I NSTRUCTION F ETCH U NIT
+                                                                                          algorithm. To be able to store a large number of prediction
+              As illustrated in Fig. 5, the IFU in XT-910 is divided into                 values, the banks are realized in high-density SRAMs.
+           three pipeline stages:                                                            Because the IF stage has a line width of 128 bits (containing
+              • Instruction Fetch (IF): access L1 instruction cache to                    a maximum of 8 instructions), it is highly likely that the
+                obtain instructions, convert virtual addresses to physical                instructions have conditional branch instructions in each cycle
+                addresses and process the ﬁrst-stage branch jump. A                       and the jump of a branch is inﬂuenced by the direction of
+                maximum of 128 bits of instruction line can be fetched                    its previous branch jump. However, due to the large access
+                from the L1 cache in a single cycle.                                      latency of SRAM banks, when a memory read happens, the
+              • Instruction Pack (IP): pack and pre-process the instruc-                  output value from the SRAM banks (that store the branch
+                tions, process the second-stage of branch jump, and reﬁll                 prediction values) must be buffered in the registers ﬁrst before
+                lines in case of cache miss. Up to 8 instructions can be                  being consumed. As a result, after receiving the predicted
+                packed. As the subsequent IDU can maximally decode                        value of jump direction for the current branch instruction,
+                3 instructions, the throughput of IP will not become the                  one clock cycle delay occurs if this value is used as the
+                performance bottleneck.                                                   historical information for the subsequent branch instruction.
+              • Instruction Buffer (IB): the packed instruction is buffered;              In other words, conditional branch instructions at two adjacent
+                up to 3 instructions are sent to the ID pipeline stage, and               cycles cannot be processed consecutively. To resolve this
+                the third-stage of jump is processed.                                     issue, XT-910 adopts a branch prediction mechanism based on
+                                                                                          prefetching from multi-level buffers. The possible prediction
+                                                                                          values of the conditional branch instructions are read out in a
+                                                                                          fuzzy matching pattern and then buffered in BUF1 and BUF2.
+                                                                                          When a branch is detected, the value in BUF1 is used for
+                                                                                          prediction. The associated value from BUF2 moves up to
+                                                                                          BUF1 to predict the branch at the next cycle, as shown in
+                                                                                          Fig. 6.
+                                                                                             This prediction mechanism can also predict multiple branch
+                                                                                          instructions in a single cycle. If the 128-bit instruction fetched
+                                                                                          in one cycle contains multiple branch instructions, the pre-
+                                                                                          diction result of the ﬁrst branch instruction can be obtained
+                                                                                          from BUF1. Based on the result, the prediction result of the
+                                                                                          second branch instruction can be obtained from BUF2. With a
+                                                                                          higher level of prefetch buffers, more branch instructions can
+                                                                                          be predicted at the same time. When misprediction happens,
+                           Fig. 5: The XT-910 IFU pipeline.                               the error will be corrected only when the branch instruction
+                                                                                          reaches the branch jump execution unit, which causes at
+             XT-910 uses the hybrid multi-mode branch prediction to                       least seven clock cycles of performance penalty compared to
+           predict the directions and target addresses of branches, in-                   executing jump at the IP stage.
+
+
+
+
+                                                                                     55
+
+Authorized licensed use limited to: The Chinese University of Hong Kong CUHK(Shenzhen). Downloaded on September 11,2025 at 01:57:36 UTC from IEEE Xplore. Restrictions apply.
+                                                                                          instructions. The subroutines call the return stack to predict
+                                                                                          the return addresses.
+                                                                                          C. Loop Buffer
+                                                                                             To facilitate instruction fetch for small loops in programs,
+                                                                                          the IFU also has a loop buffer (LBUF), as illustrated in Fig.
+                                                                                          7. Software program tends to have loop bodies which contain
+                                                                                          a small number of instructions. When executing loops, jumps
+                                                                                          occur frequently. If a jump instruction is performed at the
+                                                                                          IP stage, many bubbles will be inserted. Moreover, the last
+                                                                                          instruction of the current loop cannot be issued together with
+                                                                                          the ﬁrst instruction of the next loop, simply because there is
+                                                                                          a jump backwards instruction in between.
+                                                                                             The LBUF largely solves such issue. The loop body is
+                                                                                          entirely buffered in the LBUF. The last instruction of the
+                                                                                          current loop can be issued together with the ﬁrst instruction of
+                  Fig. 6: The branch predictor with 2-level buffer.                       the next loop to the subsequent pipeline stage. In this way, the
+                                                                                          IFU ensures that the maximal number of instructions (i.e., 3
+                                                                                          instructions/cycle) are sent to the IDU. The loop body allows
+           B. Branch Target Prediction                                                    forward branches, so the loop body with if-else structure can
+              The branch predictor only predicts if a branch instruction                  be also accelerated. Another advantage of the LBUF is that the
+           requires to jump, but the prediction of the jump address is                    instruction fetch for loop cases does not require accessing the
+           also important. Even if a jump is correctly initiated at the                   L1 instruction cache, thereby reducing the power consumption.
+           IP stage, a bubble still occurs in the pipeline. When jumps                       XT-910’s loop buffer has 16 entries. When a context switch
+           occur too frequently, the bandwidth of the IFU cannot meet                     occurs, the loop buffer is ﬂushed.
+           the demand of the subsequent execution units. To eliminate
+           the pipeline bubble, the IFU adopts a cascaded branch target
+           buffer (BTB). The L1 BTB is the main BTB. It has more
+           than 1K table entries and uses set-associative structure. The
+           L0 BTB is fully-associative with 16 table entries. At the IF
+           stage, if the branch instruction hits the L0 BTB, the predicted
+           address stored in the table will be used as the jump address
+           to execute a jump immediately, eliminating the bubble in the
+           pipeline.
+              The prediction result of the L0 BTB (including the jump
+           direction and the target address) is conﬁrmed at the IP stage.
+           The jump direction is checked by the branch predictor, and
+           the target address is checked by the L1 BTB. In case of L0
+           BTB misprediction, the target address will be corrected right                  Fig. 7: The loop buffer (LBUF) accelerates program with
+           away at the IP stage.                                                          small loops.
+              Conventionally, the branch prediction result of L1 BTB is
+           corrected at the late stages of the pipeline. In XT-910, the IFU
+           checks the L1 BTB target jump address at the IB pipeline                                            IV. E XECUTION C ORE
+           stage. If the L1 BTB generates a misprediction, an immediate                      The execution core includes ID, IR, IS, RF, EX1∼EX4,
+           correction is performed.                                                       RT1∼RT2 pipeline stages. The IDU is from the ID to the RF
+              In most cases, the performance loss caused by a jump                        stages. The ID stage decomposes and decodes instructions. It
+           instruction at the IP stage will be hidden by the prefetched                   splits instruction into micro-instructions based on the attributes
+           instructions in IBUF. The L0 BTB is intended primarily                         (e.g., instruction type, number of operands, and number of
+           for programs whose performance loss cannot be hidden. For                      write-back operations, etc.). Zero-latency decoupling of scalar
+           instance, if a program with continuous jumps performs a jump                   and vector instructions is supported.
+           at the IP stage, it will frequently generate pipeline bubbles. The                The IR stage renames operands in GPR, FGPR and VGPR
+           number of instructions in the IBUF will be reduced and the                     using physical registers. Register renaming is applied to
+           bubbles cannot be hidden. The L0 BTB captures program of                       scalar integer, ﬂoating point and vector registers. Register
+           this kind and caches the branches in it. It initiates jumps at the             renaming not only effectively handles data dependencies, it
+           IF stage to remove the bubbles in the pipeline. Besides, the                   also eliminates the use of the costly move instruction. XT-
+           IFU also has an indirect branch predictor for indirect branch                  910 adopts speculative allocation of physical registers. Upon
+
+
+
+
+                                                                                     56
+
+Authorized licensed use limited to: The Chinese University of Hong Kong CUHK(Shenzhen). Downloaded on September 11,2025 at 01:57:36 UTC from IEEE Xplore. Restrictions apply.
+           the completion of write-back, an instruction retires and the                   (AG), data cache (DC), data alignment (DA), and write-back
+           physical registers are released.                                               (WB), as shown in Fig. 9. At the AG stage, the load and store
+              The IS stage performs out-of-order instruction scheduling.                  instructions generate addresses, access the uTLB, and convert
+           The processor has 8 instruction slots, which are shared by all                 virtual addresses to physical addresses. At the DC stage, load
+           the issued instructions. Depending on the available resources                  and store instructions access the data cache. At the DA stage,
+           and workload of the execution unit, multiple independent out-                  data alignment is completed. Finally, the data is written back
+           of-order issue queues are loaded. The issue queues use an                      to the physical register ﬁle at the WB stage.
+           Age-Vector based scheduling algorithm to issue instructions to
+           the shared instruction slots. In addition, the issue queues also
+           support dynamic load balancing by monitoring the workload
+           in the pipeline and adjusting the priority in real time.
+              The EX stage contains 8 pipes, which can process 2
+           arithmetic operation instructions, 1 branch instruction, 1 load
+           instruction, 2 store instructions (i.e., the pseudo double store
+           instructions, as will be discussed later), 2 scalar ﬂoating point
+           and vector instructions in parallel.
+              The RT stage takes care of instruction write-back and
+           retirement. The RTU (retirement unit) retires instructions and
+           releases the physical registers. To ensure the correctness of
+           program execution, the instructions are retired in order in spite
+           of the out-of-order execution. Like many high-performance
+           processors [7], this feature is realized through the re-order
+           buffer (ROB). The ROB can hold up to 192 instructions.
+           When an exception occurs on one instruction, the instruction
+           has to retire and the speculative executions of the following
+           instructions in the pipe are also ﬂushed, as illustrated in Fig. 8.
+                                                                                                     Fig. 9: The pipeline stages in the LSU.
+
+                                                                                             The data cache system includes the DATA RAM and the
+                                                                                          LD TAG RAM for the load pipe. An additional ST TAG
+                                                                                          RAM is added to the store pipe. Executions on the load
+                                                                                          and store pipes access their own RAMs. For proper out-of-
+                                                                                          order LSU execution, the Load Queue (LQ) and the Store
+                                                                                          Queue (SQ) are implemented to keep the order of instructions
+                                                                                          and check the address dependencies. When executing a load
+                                                                                          instruction, all prior store instructions in the SQ are checked,
+                                                                                          and the store instructions with the same address are forwarded.
+                                                                                          When executing a store instruction, the LQ is checked. Once
+                                                                                          a ”younger” load instruction with the same address is to be
+                                                                                          executed earlier, the speculative execution fails and a global
+                                                                                          ﬂush is generated. To improve the efﬁciency of memory
+                                                                                          access speculation and reduce the performance loss caused
+                                                                                          by speculative failures, XT-910 predicts and tags load/store
+           Fig. 8: Speculative failure recovery after instruction execution
+                                                                                          instructions that may cause speculative execution failures, so
+           exception.
+                                                                                          the execution is blocked by the execution unit to ensure that the
+                                                                                          load instruction is not executed ahead of the store instruction.
+                               V. M EMORY S UB - SYSTEM
+                                                                                          B. Pseudo double store instructions
+             Many efforts have been made to enhance the efﬁciency of
+           XT-910’s memory sub-system, as discussed below.                                   To accelerate the execution of store instruction, before being
+                                                                                          issued to the queue, the instruction is decomposed into two
+           A. Dual-issue out-of-order LSU                                                 micro-operations (μOps), namely the st. addr (which stores the
+              To date, XT-910 is the only RISC-V processor that support                   address portion of the store instruction, for address generation
+           dual-issue out-of-order LSU. The LSU can process one load                      and cache query) and st. data (which stores the data portion
+           instruction and one store instruction in parallel. The dual-                   of the store instruction, for fetching operands). The st. addr
+           issue LSU requires dedicated load pipe and store pipe. Each                    goes from the shared load-store issue queue to the store pipe.
+           pipe contains four pipeline stages, namely address generation                  st. data goes from its dedicated st. data issue queue to the
+
+
+
+
+                                                                                     57
+
+Authorized licensed use limited to: The Chinese University of Hong Kong CUHK(Shenzhen). Downloaded on September 11,2025 at 01:57:36 UTC from IEEE Xplore. Restrictions apply.
+           st. data pipe, accesses the physicial register ﬁle and forwards
+           the results from the execution units. st. addr and st. data are
+           merged in the write buffer (WB) in the SQ after going through
+           their own pipes and are written back to the data cache or the
+           off-chip storage (see Fig. 10). By separating the address and
+           the data stores, the address generation and cache access can
+           be performed earlier.
+
+
+
+
+                                                                                                Fig. 11: Multi-mode multi-stream data prefetch.
+
+             Fig. 10: Independent address and data ﬂows in the LSU.
+                                                                                          Once the physical page address is obtained, data prefetch
+           C. Multi-mode multi-stream data prefetch                                       resumes.
+              For high-performance applications, there exists a large gap
+           between the memory access bandwidth/latency and the proces-                    D. Multi-size multi-level TLBs
+           sor running speed. Although multi-level cache can dwarf the
+           impact of memory wall, there are still many scenarios where                       The XT-910 core supports multi-size (4K, 2M and 1G) entry
+           either data is used very few times or the cache capacity is                    at all levels of TLBs. Each entry of the micro-TLB and the
+           insufﬁcient.                                                                   joint-TLB contains a page-size property. When the micro-TLB
+              XT-910 provide a unique multi-mode and multi-stream data                    (fully-associated) is accessed, the requested virtual address
+           prefetch approach to enhance the data prefetch capability.                     (va) is compared with the virtual page number (VPN) in every
+           By pattern matching the data streams, XT-910 effectively                       micro-TLB entry. If the micro-TLB misses, the missed va is
+           prefetches data and backﬁlls the L1 or the L2 cache, and                       sent to the joint TLB (jTLB) to ﬁnd a valid entry.
+           reduces the probability of processor stall caused by high                         As illustrated in Fig. 12, the jTLB is 4-way set associative
+           memory latency. Two data prefetch modes are supported, as                      and can only be accessed by one type of index at one time.
+           shown in Fig. 11. One is the global prefetch mode, which                       It can be accessed by three kinds of indexes correspondent to
+           is suitable for simple but continuous data stream. This mode                   the three different page sizes. It is accessed by the 4K index
+           supports any stride lengths, and the maximum depth of the                      ﬁrstly, and then the 2M index if the 4K request misses, and
+           prefetch is 64 cache lines. The other is the multi-stream                      then the 1G index if 2M request misses. The corresponding
+           prefetch mode, which is suitable for complex scenarios. This                   entry of jTLB is reﬁlled to micro-TLB on page hit. When all
+           mode supports up to 8 data streams with different stride                       page size requests are missed, page-table walk is triggered.
+           lengths, and supports prefetch depth of up to 32 cache lines.
+              The prefetch operation is divided into three steps. The
+           ﬁrst step is stride length calculation - a process which ﬁnds
+           the correct pattern from the load instruction addresses. The
+           second step is prefetch control. It decides the prefetch policy
+           and evaluate the conﬁdence. Prefetch policy is responsible
+           for setting the depth of prefetch and dynamically adjusting
+           the start and stop of prefetch. It prevents overly aggressive
+           prefetch from contaminating the cache, or overly slow prefetch
+           from performance degradation. Conﬁdence evaluation deter-
+           mines whether the prefetch policy being used is accurate or
+           whether it needs to be modiﬁed or abandoned. The last step is
+           the actual execution of data prefetch. XT-910 supports multi-
+           stream data prefetch to reduce the performance loss caused by
+           memory latency. In addition, it supports virtual address cross-
+           page prefetch. When data is prefetched at the page boundary, a                             Fig. 12: Multi-size multi-level TLBs.
+           conversion for the next virtual page is automatically requested.
+
+
+
+
+                                                                                     58
+
+Authorized licensed use limited to: The Chinese University of Hong Kong CUHK(Shenzhen). Downloaded on September 11,2025 at 01:57:36 UTC from IEEE Xplore. Restrictions apply.
+           E. Memory management in Linux OS                                               software across different hardware platforms. Based on the
+              To meet the memory management requirements in Linux                         0.7.1 stable release version of RISC-V Vector speciﬁcation,
+           OS, XT-910 adds multiple instructions to improve the                           XT-910 supports the execution of dual-issue out-of-order vec-
+           consistency of MMUs/cache: i) It can specify the ASID/base                     tor operation instructions.
+           address of page table/virtual address, and can broadcast TLB                      XT-910 uses a 64-bit scalar pipeline. According to the
+           maintenance information through the interconnection bus. The                   speciﬁcation, the vector pipeline supports 8-bit to 64-bit vector
+           CPU cores and other peripheral IPs on the interconnection                      integer operations, and half-precision/single-precision/double-
+           bus can parse the information to maintain their own MMUs.                      precision ﬂoating-point vector operations. Its vector pipeline
+           Compared with the IPI (Inter-Processor Interrupt) scheme,                      consists of multiple identical vector slices. Each vector slice
+           the maintenance is performed by hardware without software                      has a complete 64-bit data path, including a multi-port 64-
+           intervention, hence improving the efﬁciency. ii) It supports                   bit vector physical register ﬁle and two out-of-order vector
+           huge page mapping [3], which is an important feature required                  ﬂoating-point and integer execution pipelines. Each pipeline
+           by Linux OS to reduce TLB miss rate. The MMU provides 3                        supports a single 64-bit integer or double-precision ﬂoating-
+           levels table mapping. Each level can be mapped as a leaf table                 point operations, or two 32-bit integer or single-precision
+           entry. It can simultaneously meet the Linux 4KB, 2MB, 1GB                      ﬂoating-point operations. Each vector slice has its independent
+           different size of huge page requirements. iii) Its ASID width is               registers, forwarding path, and execution data path. Only very
+           increased to 16-bit. The TLB needs to be ﬂushed when ASID                      few operations, such as wide, narrow, and permutation, need
+           overﬂows. The test result shows that, the number of TLB                        to exchange data across slices.
+           ﬂushes caused by context switch is decreased by almost 10X,                       Fig. 14 shows the vector slices based architecture, which
+           as the 16-bit-wide ASID takes a much longer time to overﬂow.                   greatly reduces the layout and routing costs caused by the
+                                                                                          increasing bit-width. XT-910 can support the operation width
+                                                                                          from 64 bits to 1024 bits. However, for deeply pipelined
+                        VI. T HE MULTI - CORE ARCHITECTURE                                out-of-order multi-core processors, the maximum bit-width
+              XT-910 adopts the SMP multi-core architecture. Up to 4                      of load/store access is largely limited by the bus and cache
+           cores are grouped into one CPU cluster and up to 4 CPU                         architecture. Further, a higher bit-width increases the cost of
+           clusters are connected using Ncore (see Fig. 13). The cores                    memory access and exacerbates cache coherence problem. To
+           are connected through an internal bus with coherence pro-                      balance the bit width ratio of arithmetic-logic operations to
+           tocol. They share an inclusive L2 cache with a maximum                         load/store access, two vector slices with 128-bit VLEN and
+           conﬁgurable size of 8 MB. The L2 cache supports MOSEI                          SLEN are recommended. With this conﬁguration, XT-910 can
+           coherence protocol. A snoop ﬁlter that monitors access by the                  generate a total of 256-bit operation results in one clock cycle,
+           cores to the shared L2 cache effectively reduces the inter-core                and complete a 128-bit vector load/store operation.
+           communications.
+
+
+
+
+             Fig. 13: The block diagram of multi-core implementation.
+
+
+                      VII. V ECTOR I NSTRUCTION E XTENSION
+                                                                                              Fig. 14: The pipelined vector operation architecture.
+              XT-910 is one of the ﬁrst commercial processors that adopt
+           the RISC-V Vector Extension proposal. The vector engine                           The vector operation instruction itself does not specify the
+           signiﬁcantly boosts the performance of vector processing,                      element format and operation bit width. These vector parame-
+           especially for AI and machine learning applications.                           ters are set through a conﬁguration instruction (vsetvl/vsetvli).
+              Compared with traditional ﬁxed-length SIMD instruction                      The parameter conﬁguration instruction only needs to specify
+           sets (e.g., ARM NEON and Intel SSE/AVX), variable-length                       the number of elements to be processed, and the hardware can
+           vector instruction set (e.g., ARM SVE and RISC-V Vector                        determine the speciﬁc operation width and number of elements
+           Extension) not only provide more ﬂexible parameter selection                   according to VLMAX. This feature ensures that software
+           for hardware, but also enhances the portability of upper-layer                 does not need to know the underlying hardware parameters
+
+
+
+
+                                                                                     59
+
+Authorized licensed use limited to: The Chinese University of Hong Kong CUHK(Shenzhen). Downloaded on September 11,2025 at 01:57:36 UTC from IEEE Xplore. Restrictions apply.
+           but can run on hardware platforms with different computing                     tool collection is fully supported, as shown in Fig. 15. A
+           bitwidths. However, this is not friendly to deeply pipelined                   snapshot of the proﬁling tool is shown in Fig. 16.
+           processor architecture. The vector parameter correlation has
+           to be inferred from each vector operation instruction and its
+           preceding parameter conﬁguration instruction, slowing down
+           the execution of vector operation instruction. To alleviate the
+           performance loss, XT-910 enables vector parameter prediction
+           and speculative execution of vector operation, which only
+           cause speculation failures when the vl changes.
+              Most vector operations can be completed within 3-4 clock
+           cycles. Multiplying single and double precision ﬂoating point
+           vectors takes 5 clock cycles. Integer division and ﬂoating-point
+           division take 6 to 25 clock cycles.
+
+              VIII. N ON - STANDARD I NSTRUCTION S ET E XTENSION
+              Targeting at various industrial applications, XT-910 enables
+           a set of custom non-standard instructions, additional to the
+           standard RISC-V instructions. The non-standard instruction
+           extension can be categorized into two groups based on the
+           purposes - memory access enhancement, and basic arithmetic                                   Fig. 15: The compilation toolchain.
+           operation enhancement.
+
+           A. Memory access enhancement
+              Memory access instructions usually account for a high
+           proportion in the total number of instructions, so enhancing
+           memory access instructions can directly beneﬁt the overall per-
+           formance. By analyzing the mainstream applications running
+           on RISC-V, we observed that for the basic RISC-V instructions
+           there is still quite some room for improvement in memory
+           access related instructions.
+              First, we support register + register addressing mode, and
+           support indexed load and store instructions. This type of
+           instruction extension reduces the usage of the registers for
+           calculation and reduces the number of instructions for address
+           generation, thereby effectively accelerating the data access
+           of a loop body. Second, unsigned extension during address
+           generation is supported. Otherwise, the basic instruction set
+           does not support direct unsigned extension from 32-bit data
+           to 64-bit data, resulting in too many shift instructions.
+
+           B. Arithmetic operation enhancement
+              Domain-speciﬁc applications, such as the security
+           encryption and audio/video codec, present very different
+           arithmetic requirements. For example, security encryption                                    Fig. 16: The XT-910 proﬁling tool.
+           algorithms need to perform frequent shift, and, or and
+           other operations on certain bytes or sections in the data.                        The compiler of XT-910 has been co-optimized along with
+           Therefore, a series of bit operation instructions, multiplication              the hardware architecture, including:
+           instructions, and multiplication and accumulation instructions                    1) RISC-V architecture uses a signed extension when con-
+           have been extended.                                                                  verting 32-bit to 64-bit data type. Because the existing
+                                                                                                compilers do not support induction variable optimiza-
+                                                                                                tion, index auto-increment and branch jumps occur dur-
+                           IX. T HE OPTIMIZED TOOL CHAIN                                        ing loop unrolling, largely deteriorating the efﬁciency.
+              We release the Comprehensive Integrated Development En-                           The XT-910 compiler tool extracts the loop variables
+           vironment (CDS) for XT-910, which is an IDE that enables                             and moves the auto-increment variable and the control
+           RISC-V graphical trace, proﬁling and instruction accurate                            code out of the loop, hence reducing the total number
+           simulator with JTAG online debug. GNU’s ofﬁcial compilation                          of the instructions that needs to be executed.
+
+
+
+
+                                                                                     60
+
+Authorized licensed use limited to: The Chinese University of Hong Kong CUHK(Shenzhen). Downloaded on September 11,2025 at 01:57:36 UTC from IEEE Xplore. Restrictions apply.
+              2) RISC-V architecture designates the global pointer regis-                 XT-910 is up to the perfection of the ﬂagship Cortex-
+                 ter (global pointer) to point to a ﬁxed memory address                   A73 core. XT-910 has just made its debut, a multi-year open-
+                 during program execution, allowing some variables to                     collaboration is needed to cover numerous corner cases.
+                 be directly accessed using the load/store instructions by
+                 adding an offset to the global pointer register value.
+                 Usually, to improve the usage of the global pointer, the
+                 compiler will allocate relatively small variables to the
+                 regions that can be accessed by global pointer. However,
+                 when accessing a small variable and a large variable
+                 consecutively, the addresses of these two accesses can be
+                 far apart (i.e., large address offset), resulting in poor data
+                 locality. Our compiler tool deploys an anchor scheme,
+                 which allocates the variables of the same function to a
+                 continuous address space, saves the starting address of
+                 this space to a register and accesses the variables by
+                 adding offset to the register content.
+              3) While the existing RISC-V compilers do not support
+                 Dead Store Elimination (DSE) optimization, XT-910                                        Fig. 17: The CoreMark Scores.
+                 compiler tool does support DSE.
+                                                                                            Fig. 18 shows the performance of the EEMBC benchmark,
+                                                                                          which is a benchmark for the hardware and software used in
+                             X. E XPERIMENTAL R ESULTS
+                                                                                          autonomous driving, the Internet of Things, mobile devices,
+              A series of industrial benchmarks for embedded CPUs                         and other applications.
+           have been performed to evaluate the performance. One of the
+           benchmarks is the Coremark, which contains implementations
+           of the following algorithms: list processing (ﬁnd and sort),
+           matrix manipulation (common matrix operations), state ma-
+           chine (determine if an input stream contains valid numbers),
+           and CRC (cyclic redundancy check). Such benchmark is only
+           for core performance evaluation, as it is basically all cache-
+           hit and it is hardly affected by DDR latency. In Fig. 17, the
+           performance is compared with various embedded processors.
+           XT-910 processor reaches 7.1 CoreMark/MHz, which is 40%
+           faster than SiFive U74 (which is by far the highest performance
+           RISC-V processor available on market). We saw the news
+           about the upcoming SiFive U84 processor, but because there                     Fig. 18: The performance of the EEMBC benchmark, nor-
+           are no ofﬁcial product data by the time submitting this article,               malized to the performance of ARM Cortex-A73.
+           we cannot make comparison without knowing the evaluation
+           conditions, hardware conﬁguration and software compilation                        Similarly, we evaluated the NBench, which is a performance
+           details. We would be happy to include it as a new reference                    testing framework for .NET applications. The results are
+           point once the information becomes available.                                  shown in Fig. 19. Overall, the performance of XT-910 is on
+              Because there are hardly benchmarking results available                     par with the ARM Cortex-A73.
+           from high performance RISC-V processors of this kind, we                          We have run the SPECInt2006 benchmark. SPECInt2006
+           use the ARM Cortex-A73 [2] as our reference. As high-                          uses very large programs that frequently incur L2 cache
+           performance embedded processors, Cortex-A73 and XT-910                         misses. It factors in core performance, cache size, cache
+           have many architectural similarities (e.g., pipeline stages,                   miss, DDR latency, etc., thereby providing a comprehensive
+           instruction issue width, etc.). This allows us to better analyze               evaluation on a CPU system. The performance of XT-910
+           and compare the advantages and disadvantages of RISC-V                         is 6.11 SPECInt/GHz, which is 10% lower than the 6.75
+           and ARM at the ISA level. The experimental Cortex-A73                          SPECInt/GHz delivered by Cortex-A73.
+           processor is from the Huawei Kirin-970, which uses the                            Compared with the native RISC-V ISA and compiler, the
+           linaro GCC 6.3-2017.02 toolchain. It has 64KB L1 instruction                   performance of XT-910 with instruction extensions and opti-
+           cache, 64KB L1 data cache, and 2MB L2 cache shared by                          mized compiler has been improved by about 20%, as shown
+           the instruction and data. For a fair comparison, XT-910 is                     in Fig. 20. Although we do not show the acceleration of
+           conﬁgured for the same L1 & L2 cache sizes and it uses                         AI use cases in this paper, it should be noted that XT-910
+           GCC 8.1 compilation toolchain with -O2 option. A disclaimer                    supports the RISC-V 0.7.1 vector extension and the Cortex-
+           that the benchmarking results are by no means suggesting                       A73 uses ARM’s NEON technology. Taking 16-bit multiply-
+
+
+
+
+                                                                                     61
+
+Authorized licensed use limited to: The Chinese University of Hong Kong CUHK(Shenzhen). Downloaded on September 11,2025 at 01:57:36 UTC from IEEE Xplore. Restrictions apply.
+                                                                                          and obtains the data from the bus after 200 CPU cycles. In
+                                                                                          the FPGA test, the CPU is running at 60MHz.
+
+
+
+
+           Fig. 19: The performance of the NBench, normalized to the
+           performance of ARM Cortex-A73.
+
+                                                                                          Fig. 21: The performance impact of prefetch on the memory
+           accumulate as an example, as far as we know, the Cortex-                       sub-system. a) All prefetches are off; b) L1 prefetch is on, L2
+           A73 supports 8X 16-bit-MAC operation, and the computing                        and TLB prefetches are off, and small distance is conﬁgured;
+           power of XT-910 is 16X 16-bit MACs, so theoretically XT-                       c) L1, L2, and TLB prefetches are on, and small distance is
+           910 has a 1X performance improvement over the Cortex-                          conﬁgured; d) L1, L2, and TLB prefetches are on, and large
+           A73. In addition, XT-910 supports half-precision operation                     distance is conﬁgured; e) L1 and L2 prefetches are on, TLB
+           (which is not supported by Cortex-A73), further widening the                   prefetch is off, and large distance is conﬁgured.
+           performance gap between them in AI scenarios.
+
+                                                                                                                  XI. C ONCLUSION
+                                                                                             This paper presents XT-910 - a deeply pipelined out-of-
+                                                                                          order high performance 64-bit embedded multi-cluster multi-
+                                                                                          core RISC-V processor. It is fully based on the RV64GCV
+                                                                                          instruction set and features custom extensions to enhance
+                                                                                          vector and arithmetic operations, bit manipulation, load &
+                                                                                          store, and TLB & cache operations. XT-910 supports multi-
+                                                                                          core multi-cluster with cache coherence. Each cluster contains
+                                                                                          1 to 4 core(s) capable of booting Linux operating system.
+                                                                                          Each single core utilizes the state-of-the-art 12-stage pipeline,
+                                                                                          out-of-order, multi-issue superscalar architecture, attaining a
+                                                                                          maximum clock frequency of up to 2.5 GHz in the typical
+           Fig. 20: The performance of XT-910 with instruction ex-                        process and temperature condition in a TSMC 12nm FinFET
+           tensions and optimized compiler, normalized to using native                    process technology. Each single core costs an area of 0.8
+           RISC-V ISA and compiler.                                                       mm2 and 0.6 mm2 , with and without the vector execution
+                                                                                          unit (excluding the L2 cache). The toolchain of XT-910 also
+              Fig. 21 illustrates the impact of data pre-fetch on stream                  has been largely optimized to support the custom extensions.
+           for the memory subsystem. stream is a set of benchmark that                    By hardware and software co-design, to date XT-910 delivers
+           tests memory access performance and prefetch performance.                      the highest performance (in terms of IPC, speed and power
+           The performance is normalized to the performance of scenario                   efﬁciency) for a number of industrial control ﬂow and data
+           a), where all prefetches on off. Scenario b) only enabled L1                   computing benchmarks when compared with its predecessors
+           prefetching, the performance increased to 3.8X. Scenario c)                    in the RISC-V family.
+           further turned on L2 and TLB prefetching, the performance                         Since the ofﬁcial product launch in July, 2019, the FPGA
+           improvement goes up to 4.9X. When the prefetch distance was                    implementation of XT-910 has been already deployed in the
+           adjusted from small to large in scenario d), the performance                   data centers of Alibaba Cloud, for application-speciﬁc ac-
+           reached a maximum of 5.4X. Scenario e) turns off TLB                           celeration by ofﬂoading tasks from servers to FPGAs and
+           prefetching while other conﬁgurations remain the same as                       taking advantage of XT-910’s custom extensions and vector
+           scenario d), and the performance is slightly reduced (by about                 extensions. An ASIC edition has been taped out and the
+           2.4%). The experimental data are all from evaluation on                        ASIC deployment will happen after silicon bring-up. Besides
+           HAPS80-S26 FPGA. Because the access delay of memory                            internal use, the IP has been adopted by dozens of external
+           data directly affects the test results, the memory access delay                customers in edge and IoT endpoint computing applications.
+           is adjusted to about 200 CPU clock cycles (by specifying the                   We are currently enhancing features like multi-core expansion,
+           bus delay and DDR delay), i.e., the CPU issues a read request                  parallel computing and functional safety. Compared with the
+
+
+
+
+                                                                                     62
+
+Authorized licensed use limited to: The Chinese University of Hong Kong CUHK(Shenzhen). Downloaded on September 11,2025 at 01:57:36 UTC from IEEE Xplore. Restrictions apply.
+           ISA of ARM, the ISA of RISC-V is architecturally more                             [3] “Performance tuning guide - red hat enterprise linux,” https:
+                                                                                                 //access.redhat.com/documentation/en-us/red hat enterprise linux/
+           concise. This reduces the decoding and execution costs of                             6/html/performance tuning guide/ch-intro#idm140449023557936.
+           processor hardware. It also reduces the complexity of the tool                    [4] “Pulp platform,” https://pulp-platform.org/.
+           chain. RISC-V ISA is a modular instruction set. Through the                       [5] “Shakti processor program,” https://shakti.org.in/.
+           combination of different subsets, the processor can be more                       [6] “The siﬁve u74 standard core,” https://www.siﬁve.com/cores/u74.
+                                                                                             [7] “Intel 64 and ia-32 architectures optimization reference manual,” Intel
+           ﬂexible to obtain advantages in power, area and performance                           Corporation, Tech. Rep., June 2011. [Online]. Available: http://www.
+           in different application scenarios. While RISC-V ISA’s ﬂexi-                          cs.princeton.edu/courses/archive/spr15/cos217/reading/ia32opt.pdf
+           bility and scalability provide unlimited possibilities for open                   [8] “Risc-v in nvidia,” in 6th RISC-V Workshop, Shanghai, 2017.
+                                                                                             [9] K. Asanović, R. Avizienis, J. Bachrach, S. Beamer, D. Biancolin,
+           innovations, many excellent features in ARM (such as bitwise                          C. Celio, H. Cook, D. Dabbelt, J. Hauser, A. Izraelevitz, S. Karandikar,
+           operation, trace and virtualization) have not yet been ﬁnalized                       B. Keller, D. Kim, J. Koenig, Y. Lee, E. Love, M. Maas,
+           in RISC-V ISA proposals.                                                              A. Magyar, H. Mao, M. Moreto, A. Ou, D. A. Patterson, B. Richards,
+                                                                                                 C. Schmidt, S. Twigg, H. Vo, and A. Waterman, “The rocket chip
+              The R&D journey of XT-910 convinced the RISC-V com-                                generator,” EECS Department, University of California, Berkeley,
+           munity that, i) as an open source architecture, the RISC-V                            Tech. Rep. UCB/EECS-2016-17, Apr 2016. [Online]. Available: http:
+           architecture not only enables low-power low-cost embedded                             //www2.eecs.berkeley.edu/Pubs/TechRpts/2016/EECS-2016-17.html
+                                                                                            [10] C. Celio, D. A. Patterson, and K. Asanović, “The berkeley out-of-order
+           MCUs, it is also applicable to high-performance computing.                            machine (boom): An industry-competitive, synthesizable, parameterized
+           For a variety of general-purpose applications, the RV64GC-                            risc-v processor,” EECS Department, University of California, Berkeley,
+           based XT-910 has reached the performance of commercial                                Tech. Rep. UCB/EECS-2015-167, Jun 2015. [Online]. Available: http:
+                                                                                                 //www2.eecs.berkeley.edu/Pubs/TechRpts/2015/EECS-2015-167.html
+           cores in mainstream architectures; ii) the RISC-V vector                         [11] J. Feehrer, S. Jairath, P. Loewenstein, R. Sivaramakrishnan, D. Smentek,
+           extension could also be well suited for AI and machine                                S. Turullols, and A. Vahidsafa, “The Oracle Sparc T5 16-Core Processor
+           learning applications; iii) the potential of RISC-V will not only                     Scales to Eight Sockets,” IEEE Micro, vol. 33, no. 2, pp. 48–57, Mar.
+                                                                                                 2013. [Online]. Available: http://ieeexplore.ieee.org/document/6493301/
+           be limited to the edge computing. For many applications in                       [12] E. Flamand, D. Rossi, F. Conti, I. Loi, A. Pullini, F. Rotenberg,
+           data centers, its ﬂexibility and customizability are beneﬁcial,                       and L. Benini, “GAP-8: A RISC-V soc for AI at the edge of
+           especially being the scalable domain-speciﬁc accelerators in                          the iot,” in 29th IEEE International Conference on Application-
+                                                                                                 speciﬁc Systems, Architectures and Processors, ASAP 2018, Milano,
+           the post-Moore’s Law era.                                                             Italy, July 10-12, 2018, 2018, pp. 1–4. [Online]. Available: https:
+              Charles Darwin said, ”It is not the strongest of the species                       //doi.org/10.1109/ASAP.2018.8445101
+           that survives, nor the most intelligent. It is the one that is most              [13] N. Gala, A. Menon, R. Bodduna, G. S. Madhusudan, and V. Kamakoti,
+                                                                                                 “SHAKTI processors: An open-source hardware initiative,” in 29th
+           responsive to change.” We believe the philosophy also applies                         International Conference on VLSI Design and 15th International
+           to computing architectures. Nonetheless, the evolving RISC-                           Conference on Embedded Systems, VLSID 2016, Kolkata, India,
+           V architecture is not mature enough in terms of technology                            January 4-8, 2016, 2016, pp. 7–8. [Online]. Available: https:
+                                                                                                 //doi.org/10.1109/VLSID.2016.130
+           and ecosystems. We have been actively participating in the                       [14] M. Gautschi, M. Muehlberghuber, A. Traber, S. Stucki, M. Baer,
+           RISC-V foundation on the standardization and discussing the                           R. Andri, L. Benini, B. Muheim, and H. Kaeslin, “SIR10us:
+           effective custom extensions of XT-910 with the technical sub-                         A tightly coupled elliptic-curve cryptography co-processor for the
+                                                                                                 OpenRISC,” in 2014 IEEE 25th International Conference on
+           groups. Some of the extensions (such as cache operations)                             Application-Speciﬁc Systems, Architectures and Processors. Zurich,
+           have already drawn attention and are considered into future                           Switzerland: IEEE, Jun. 2014, pp. 25–29. [Online]. Available:
+           RISC-V standard ISA release. For RISC-V architectures to be                           http://ieeexplore.ieee.org/document/6868626/
+                                                                                            [15] M. Gautschi, P. Schiavone, A. Traber, I. Loi, A. Pullini, D. Rossi,
+           more competitive as compared to other industry’s mainstream                           E. Flamand, F. K. Gurkaynak, and L. Benini, “Near-threshold risc-
+           high-performance architectures, the RISC-V community must                             v core with dsp extensions for scalable iot endpoint devices,” IEEE
+           maintain the ISA conformity and innovate together through                             Transactions on Very Large Scale Integration (VLSI) Systems, vol. PP,
+                                                                                                 Aug 2016.
+           software and hardware co-design.                                                 [16] T. R. Gross, N. P. Jouppi, J. L. Hennessy, S. Przybylski, and C. Rowen,
+                                                                                                 “A Retrospective on “MIPS: A Microprocessor Architecture”,” 2016.
+                                  ACKNOWLEDGEMENT                                           [17] J. Hennessy, N. Jouppi, F. Baskett, and J. Gill, “MIPS: a VLSI processor
+                                                                                                 architecture,” in VLSI Systems and Computations. Springer, 1981, pp.
+                                                                                                 337–346.
+              We thank the CPU hardware and the software engineering
+                                                                                            [18] J. Hennessy, N. Jouppi, S. Przybylski, C. Rowen, T. Gross, F. Baskett,
+           teams in Alibaba T-Head division for their tremendous efforts.                        and J. Gill, “MIPS: A microprocessor architecture,” ACM SIGMICRO
+           We also thank Alibaba Cloud Infrastructure & Service division                         Newsletter, vol. 13, no. 4, pp. 17–22, 1982.
+           for the strong support.                                                          [19] B. Keller, M. Cochet, B. Zimmer, J. Kwak, A. Puggelli, Y. Lee,
+                                                                                                 M. Blagojevic, S. Bailey, P. Chiu, P. Dabbelt, C. Schmidt, E. Alon,
+                                                                                                 K. Asanovic, and B. Nikolic, “A RISC-V processor soc with integrated
+                                       R EFERENCES                                               power management at submicrosecond timescales in 28 nm FD-SOI,”
+                                                                                                 J. Solid-State Circuits, vol. 52, no. 7, pp. 1863–1875, 2017. [Online].
+            [1] “Arm cpu cortex-a55,” https://www.arm.com/products/silicon-ip-                   Available: https://doi.org/10.1109/JSSC.2017.2690859
+                cpu/cortex-a/cortex-a55?utm source=google&utm medium=cpc&                   [20] P. Kongetira, K. Aingaran, and K. Olukotun, “Niagara: A 32-Way
+                utm campaign=2019 brand mk30 cpus search bol&utm source=                         Multithreaded Sparc Processor,” IEEE Micro, vol. 25, no. 2, pp. 21–29,
+                google&utm medium=cpc&gclid=EAIaIQobChMI6ujPg 3V4wIVWB-                          Mar. 2005. [Online]. Available: http://ieeexplore.ieee.org/document/
+                tBh3migfFEAAYASAAEgL9MvD BwE.                                                    1453485/
+            [2] “Arm     cpu     cortex-a73,”  https://www.arm.com/products/silicon-        [21] G. Konstadinidis, M. Tremblay, S. Chaudhry, M. Rashid, P. Lai,
+                ip-cpu/cortex-a/cortex-a73?utm source=google&utm medium=                         Y. Otaguro, Y. Orginos, S. Parampalli, M. Steigerwald, S. Gundala,
+                cpc&utm campaign=2019 brand mk30 cpus search bol&utm                             R. Pyapali, L. Rarick, I. Elkin, Y. Ge, and I. Parulkar, “Architecture
+                source=google&utm medium=cpc&gclid=EAIaIQobChMIioGT1Z                            and Physical Implementation of a Third Generation 65 nm, 16 Core,
+                u4wIVB9lkCh2zYQr7EAAYASAAEgKjiPD BwE.                                            32 Thread Chip-Multithreading SPARC Processor,” IEEE Journal of
+
+
+
+
+                                                                                       63
+
+Authorized licensed use limited to: The Chinese University of Hong Kong CUHK(Shenzhen). Downloaded on September 11,2025 at 01:57:36 UTC from IEEE Xplore. Restrictions apply.
+                Solid-State Circuits, vol. 44, no. 1, pp. 7–17, Jan. 2009. [Online].
+                Available: http://ieeexplore.ieee.org/document/4735553/
+           [22] Y. Lee, A. Waterman, R. Avizienis, H. Cook, C. Sun, V. Stojanovic,
+                and K. Asanovic, “A 45nm 1.3ghz 16.7 double-precision GFLOPS/W
+                RISC-V processor with vector accelerators,” in ESSCIRC 2014 -
+                40th European Solid State Circuits Conference, Venice Lido, Italy,
+                September 22-26, 2014, 2014, pp. 199–202. [Online]. Available:
+                https://doi.org/10.1109/ESSCIRC.2014.6942056
+           [23] A. S. Leon, K. W. Tam, J. L. Shin, D. Weisner, and F. Schumacher, “A
+                Power-Efﬁcient High-Throughput 32-Thread SPARC Processor,” IEEE
+                Journal of Solid-State Circuits, vol. 42, no. 1, pp. 7–16, Jan. 2007.
+                [Online]. Available: http://ieeexplore.ieee.org/document/4039591/
+           [24] A. Lopez-Parrado and J.-C. Valderrama-Cuervo, “OpenRISC-based
+                System-on-Chip for digital signal processing,” in 2014 XIX Symposium
+                on Image, Signal Processing and Artiﬁcial Vision. Armenia,
+                Colombia: IEEE, Sep. 2014, pp. 1–5. [Online]. Available: http:
+                //ieeexplore.ieee.org/document/7010123/
+           [25] T. Marena, “Risc-v: high performance embedded swerv™ core
+                microarchitecture, performance and chips alliance,” Western digital
+                Corporation, Tech. Rep., Apr 2019. [Online]. Available: https://content.
+                riscv.org/wp-content/uploads/2019/04/RISC-V SweRV Roadshow-.pdf
+           [26] N. Mehdizadeh, M. Shokrolah-Shirazi, and S. G. Miremadi, “Analyzing
+                fault effects in the 32-bit OpenRISC 1200 microprocessor,” in
+                2008 Third International Conference on Availability, Reliability and
+                Security. IEEE, Mar. 2008, pp. 648–652. [Online]. Available:
+                http://ieeexplore.ieee.org/document/4529404/
+           [27] A. Menon, S. Murugan, C. Rebeiro, N. Gala, and K. Veezhinathan,
+                “Shakti-t: A RISC-V processor with light weight security extensions,”
+                in Proceedings of the Hardware and Architectural Support for
+                Security and Privacy, HASP@ISCA 2017, Toronto, ON, Canada,
+                June 25, 2017, 2017, pp. 2:1–2:8. [Online]. Available: https:
+                //doi.org/10.1145/3092627.3092629
+           [28] V. Patil, A. Raveendran, P. M. Sobha, A. D. Selvakumar, and
+                D. Vivian, “Out of order ﬂoating point coprocessor for RISC V ISA,”
+                in 19th International Symposium on VLSI Design and Test, VDAT
+                2015, Ahmedabad, India, June 26-29, 2015, 2015, pp. 1–7. [Online].
+                Available: https://doi.org/10.1109/ISVDAT.2015.7208116
+           [29] G. Tagliavini, S. Mach, D. Rossi, A. Marongiu, and L. Benini, “Design
+                and evaluation of smallﬂoat SIMD extensions to the RISC-V ISA,” in
+                Design, Automation & Test in Europe Conference & Exhibition, DATE
+                2019, Florence, Italy, March 25-29, 2019, 2019, pp. 654–657. [Online].
+                Available: https://doi.org/10.23919/DATE.2019.8714897
+           [30] M. Tremblay and S. Chaudhry, “A Third-Generation 65nm 16-Core
+                32-Thread Plus 32-Scout-Thread CMT SPARC® Processor,” in 2008
+                IEEE International Solid-State Circuits Conference - Digest of Technical
+                Papers. San Francisco, CA, USA: IEEE, Feb. 2008, pp. 82–83.
+                [Online]. Available: http://ieeexplore.ieee.org/document/4523067/
+           [31] A. Waterman and K. Asanović, “The risc-v instruction set manual,” The
+                RISC-V Foundation, Tech. Rep., May 2017. [Online]. Available: https:
+                //content.riscv.org/wp-content/uploads/2017/05/riscv-spec-v2.2.pdf
+           [32] F. Zaruba and L. Benini, “The cost of application-class processing:
+                Energy and performance analysis of a linux-ready 1.7ghz 64bit risc-v
+                core in 22nm fdsoi technology,” Apr 2019.
+           [33] B. Zimmer, Y. Lee, A. Puggelli, J. Kwak, R. Jevtic, B. Keller, S. Bailey,
+                M. Blagojevic, P. Chiu, H. Le, P. Chen, N. Sutardja, R. Avizienis,
+                A. Waterman, B. C. Richards, P. Flatresse, E. Alon, K. Asanovic, and
+                B. Nikolic, “A RISC-V vector processor with simultaneous-switching
+                switched-capacitor DC-DC converters in 28 nm FDSOI,” J. Solid-State
+                Circuits, vol. 51, no. 4, pp. 930–942, 2016. [Online]. Available:
+                https://doi.org/10.1109/JSSC.2016.2519386
+
+
+
+
+                                                                                            64
+
+Authorized licensed use limited to: The Chinese University of Hong Kong CUHK(Shenzhen). Downloaded on September 11,2025 at 01:57:36 UTC from IEEE Xplore. Restrictions apply.
+

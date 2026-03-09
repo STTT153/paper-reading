@@ -1,0 +1,922 @@
+SpacemiT K3: A RVA23 RISC-V AI CPU with 60 TOPS AI Compute
+                                                          SpacemiT Preview Version.
+
+
+Abstract                                                                      Compared with the first generation, the second-generation prod-
+This paper presents SpacemiT’s second-generation edge CPU com-              uct improves along three clear and measurable dimensions:
+pute subsystem, K3, which adopts a homogeneous fusion para-
+                                                                                • Stronger general-purpose compute: the second generation
+digm: a high-performance RISC-V CPU cluster (X100) and an AI-
+                                                                                  substantially improves CPU performance and system respon-
+first RISC-V AI-CPU cluster (A100) are integrated under a unified
+                                                                                  siveness, providing stronger single-thread and multi-thread
+RISC-V ISA and run a single Linux operating system. K3 explores
+                                                                                  capability to support edge control planes, system services,
+how a compact, co-designed hardware–software stack can deliver
+                                                                                  and complex application logic. Meanwhile, by anchoring ISA
+both general-purpose and AI capability within the constraints of
+                                                                                  compatibility and software ecosystem alignment on RVA23,
+resource-limited edge hardware. The paper describes the engineer-
+                                                                                  it achieves better toolchain and OS compatibility as well as
+ing choices and implementation of the X100 and A100, with par-
+                                                                                  long-term evolvability, providing a more robust platform
+ticular emphasis on RVA23 enablement and hardware–software
+                                                                                  foundation for continuous iteration of frameworks, drivers,
+co-design for efficient LLM inference. It also outlines the OS sched-
+                                                                                  and applications.
+uling and resource governance and AI software stack built on top
+                                                                                • Deployment scale: to meet model-side scaling requirements,
+of K3, forming an integrated solution for edge AI and robotics.
+                                                                                  it enables stable deployment and continuous evolution of
+                                                                                  larger LLMs or a greater number of agents on the edge.
+Keywords                                                                        • More efficient hardware–software co-design: including, but
+RISC-V, AI-CPU, RVA23, Homogeneous Fusion, High-performance                       not limited to, a hierarchical memory system spanning on-
+CPU, IME Extension, Trition                                                       chip SRAM and off-chip main memory (LPDDR) tailored for
+                                                                                  different application scenarios; low-latency execution paths
+1    Introduction                                                                 for interactive workloads; and an end-to-end performance-
+As edge computing moves into a new phase driven by local LLMs                     driven heterogeneous scheduling strategy, avoiding charac-
+and robotics, the key challenge is to deliver both strong general-                terizing real user experience solely by isolated kernels or
+purpose performance and strong AI performance in a single system,                 peak TOPS.
+and to turn that into a scalable, cost-effective commercial product.
+To address this, we propose and implement a homogeneous fusion                 The remainder of this paper is organized as follows: Section
+computing paradigm for the edge-AI era: under a unified RISC-V              3 describes the overall system architecture; Section 4 details the
+ISA and extension framework, we integrate a high-performance                hardware design and key mechanisms; Section 5 introduces the
+RISC-V CPU with an AI-optimized AI-CPU (or an ISA-integrated                software stack; and Section 6 reports the evaluation methodology
+AI compute unit). Both run the same operating system (Linux) and            and performance results.
+support unified scheduling and resource governance with threads
+or tasks as the basic scheduling units, thereby enabling a system-          2 System Overview and Design Rationale
+level delivery model of “one platform, one stack, and one operations
+                                                                            2.1 Design Targets and System Trade-offs
+surface.”
+   This work corresponds to our second-generation silicon. In the           To deliver, based on the RISC-V architecture, a mass-production AI
+first generation, we validated the feasibility and customer value           CPU targeting two representative edge form factors—AI computers
+of homogeneous fusion in real deployments: on the one hand, the             and AI robots—we ultimately converge the engineering constraints
+general-purpose RISC-V CPU ensures system and ecosystem com-                of the chip to the following three points:
+patibility, control-plane determinism, and engineering maintain-                • 12 nm process: adopt a 12 nm-class FinFET platform that
+ability; on the other hand, the ISA-integrated AI compute resources               has entered long-term volume production and is explicitly
+can be invoked at low overhead within the same address space                      positioned for high-efficiency edge devices (e.g., 12FFC+ in
+and process model, substantially reducing system complexity and                   volume production; N12e targeting AI-enabled IoT/edge de-
+ecosystem fragmentation for edge deployment. The evolutionary                     vices), thereby reducing manufacturing and cost risk.
+path is analogous to the mobile Internet era: to achieve both high              • Die area budget (<150 mm2): constrain die size to <150 mm2
+performance and low power on smartphones, the industry intro-                     to reduce per-die cost and yield risk (widely used industry
+duced big.LITTLE designs on top of the Arm ecosystem while                        models indicate that die cost grows markedly super-linearly
+running a single operating system. In the AI era, our homogeneous                 with area and yield decreases as die area increases), and to
+fusion targets both high performance and high AI throughput,                      avoid dependence on supply-chain-constrained resources
+while compressing the system fragmentation cost introduced by                     such as oversized packages and high-layer-count substrates.
+heterogeneity into a controllable range.                                        • 30 W power: set TDP to 30 W, consistent with mainstream
+SpacemiT, 2026/01/29                                                              power envelopes of edge AI/robotics modules, enabling prac-
+2026.                                                                             tical deployment within established thermal solutions and
+                                                                        1
+SpacemiT, Preview Version, 2026/01/29
+
+
+        product form factors; for example, the Jetson AGX Orin fam-                            Table 1: K3 AI compute.
+        ily provides power budget tiers such as 15 W / 30 W / 50
+        W.                                                                                 Dense     Sparse
+                                                                                K3                             Notes
+   Under the above constraints on process, area, and power, we                            (TOPS)     (TOPS)
+further converge the architecture implementation to the compute-                                                     Supports block scaling
+system design of the second-generation chip, with the following                INT4          30        60         to preserve the accuracy of
+main components:                                                                                                    INT4-quantized models
+                                                                                                                  Accelerates convolution to
+      • 8 X100 cores: a high-performance RISC-V CPU subsystem                  INT8          15        30
+                                                                                                               improve conv-kernel throughput
+        fully compliant with RVA23, targeting control-plane deter-
+                                                                                                                 Supports both IEEE FP16 and
+        minism, ecosystem compatibility, and long-term maintain-            BF16/ FP16       7.5      N/A
+                                                                                                               bfloat16 (Brain Float 16) formats
+        ability for system services.
+                                                                                                                FP8 operands are converted to
+      • 8 A100 cores: 60 TOPS-class general-purpose AI compute                  FP8          7.5      N/A
+                                                                                                                    BF16 before computatio
+        capability to serve as the primary engine for edge inference
+        workloads.
+      • System-level enablers and scenario optimizations: close key
+        system bottlenecks for end-to-end throughput, latency, and         and fully implements all mandatory ISA extensions specified by
+        deployability, including:                                          RVA23U64 (user mode) and RVA23S64 (supervisor mode). In addi-
+        – Memory and high-speed I/O subsystem: e.g., 2×32-bit              tion, the core proactively supports optional extensions including
+          LPDDR5 controllers and a UCIe interface, maximizing              vector cryptography (e.g., Zvkng, Zvksg, Zvbc) as well as FP16/BF16
+          effective bandwidth and expansion capability within edge         compute-related extensions such as Zfh, Zvfh, Zfbfmin, Zvfbfmin,
+          area and power envelopes.                                        Zvfbfwma. As a key standard within the RISC-V ecosystem, the
+        – Low-latency response and control: e.g., a dual-RT24 de-          RVA23 Profile aims to harmonize 64-bit application-processor im-
+          sign that partitions real-time tasks such as motor control       plementations so that a binary software ecosystem can be built
+          and sensing; critical events are delivered and wake-up is        on a broadly guaranteed set of ISA extensions, while retaining
+          triggered quickly via MSI interrupts, stabilizing latency        flexibility through a small number of discoverable coarse-grained
+          and reducing jitter.                                             options. By being comprehensively RVA23-compatible, the X100
+        – AI datapath-critical components: e.g., AI-DMA, reducing          core ensures seamless compatibility with operating systems and
+          data-movement overhead, improving effective bandwidth            applications built to this specification, enabling rapid integration
+          utilization, and providing controllable primitives for re-       into the increasingly mature RISC-V software ecosystem.
+          source governance under multi-agent and multi-model                 To deliver high AI performance, the K3 SoC integrates 8 A100
+          concurrency.                                                     cores (2 clusters), providing 60 TOPS of AI compute. The A100 is
+   It is important to emphasize that designing a mass-production-          likewise built on the standardized ISA/toolchain baseline defined
+grade edge AI CPU is fundamentally a software–hardware co-                 by the RVA23 Profile: on the one hand, RVA23U64 elevates V (Vec-
+designed system endeavor. Satisfying hard hardware constraints—such        tor) to a mandatory extension, together with mandatory vector
+as process node, area, and power—alone is insufficient to deliver          sub-extensions such as Zvfhmin/Zvbb/Zvkt; on the other hand,
+a product at scale. Practical deployability and commercial usabil-         RVA23U64 lists BF16-related extensions that are closely tied to
+ity are ultimately determined by the software stack, including the         AI mixed-precision—Zfbfmin, Zvfbfmin, Zvfbfwma—as optional,
+compiler/operator libraries and runtime, OS and drivers, and the           providing a discoverable and portable standard interface path for
+toolchain for model deployment and performance analysis, as well           the evolution of AI/ML data types and operators. The typical AI
+as their co-optimized convergence with the underlying microarchi-          compute specifications provided by A100 on K3 are summarized in
+tecture. Building on the software-stack assets and engineering vali-       the Table 1.
+dation accumulated from first-generation customer deployments,                To support MSI (Message-Signaled Interrupt)-based external
+we treat software generality and usability as the primary gating           interrupts as well as local interrupts (software interrupts and timer
+constraint for the second-generation architecture design.                  interrupts), the K3 SoC integrates SpacemiT’s in-house interrupt
+                                                                           controller, APIC. APIC is composed of APLIC and ACLINT:
+2.2     System Overview                                                        • APLIC (Advanced Platform-Level Interrupt Controller) fol-
+This paper focuses on the K3 compute subsystem: a homogeneous-                   lows The RISC-V Advanced Interrupt Architecture
+fusion compute platform composed of 2× clusters of X100 (general-              • ACLINT (Advanced Core Local Interruptor) follows RISC-V
+purpose) and A100 (AI) cores. We describe its key capabilities in-               Advanced Core Local Interruptor (ACLINT) Specification
+cluding ISA/Profile configuration, the external and local interrupt           MSI realizes “external interrupts” as a device-issued memory-
+subsystem (MSI/APIC), the instruction-trace infrastructure, and I/O        write message to a designated address. Mechanistically, this avoids
+isolation and virtualization via the IOMMU.                                common issues of legacy pin-based interrupts such as shared IRQ
+   To deliver high general-purpose performance, the K3 SoC in-             lines and the associated overhead of scanning multiple handlers
+tegrates 8 X100 cores across 2 clusters, providing an aggregate            under IRQ sharing. MSI can also leverage the ordering semantics of
+compute capability of 130K DMIPS. The X100 core is designed                message delivery, helping reduce extra synchronization or readback
+against the RISC-V application-processor standard RVA23 Profile,           paths that may otherwise be needed when an interrupt is observed
+                                                                       2
+SpacemiT K3: A RVA23 RISC-V AI CPU with 60 TOPS AI Compute                                                       SpacemiT, Preview Version, 2026/01/29
+
+
+
+
+                                                        Figure 1: System Overview of K3.
+
+
+before its corresponding data writes become visible. Furthermore,              • Ownership event messages, facilitating differentiation and
+MSI/MSI-X supports multiple interrupt vectors and can be config-                 tracking of process execution flows in Linux and other OSes.
+ured to target specific CPUs/cores, which is beneficial for robotics
+workloads: interrupts from critical sensors and control loops can             For secure isolation and manageability of the I/O subsystem, the
+be steered to isolated cores to reduce jitter and improve real-time        K3 SoC integrates SpacemiT’s in-house T100 IOMMU. T100 fol-
+determinism.                                                               lows the RISC-V IOMMU Architecture Specification and the RISC-V
+   To enable instruction tracing (Trace) for processor cores, the          Server SoC Specification. At the hardware level, it provides device-
+K3 SoC integrates RISC-V Trace encoders and corresponding sink             DMA address translation, access control, and isolation protection;
+components for both X100 and A100. The instruction-trace interface         for virtualization, it further offers hardware-assisted I/O virtualiza-
+of X100 and A100 complies with the RISC-V Hart-to-Trace Interface          tion, supporting device passthrough (PCIe passthrough) and device
+specification; the trace encoder is designed against the RISC-V            virtualization (e.g., SR-IOV).
+N-Trace (Nexus-based Trace) Specification (Version 1.0); and the
+trace component register definitions are compatible with the RISC-         3   Hardware Design
+V Trace Control Interface Specification (Version 1.0), supporting
+                                                                           In the K3 computing system, X100 and A100 achieve interoper-
+configuration via the system interconnect. The X100/A100 trace
+                                                                           ability under a unified RISC-V architectural framework; the im-
+encoders implement the following standard features:
+                                                                           mediate value is manifested in the ability for general-purpose and
+    • BTM-mode encoded output;                                             AI workloads to execute cooperatively within the same software
+    • Trace enable/disable and event emission based on Debug               stack. More importantly, this approach avoids the coexistence of a
+      Triggers;                                                            “dual-OS / dual-stack” configuration typical of conventional hetero-
+    • Address-compression–based encoding optimizations;                    geneous architectures, along with the resulting resource footprint,
+    • Event transport on Trace data overflow;                              boundary-crossing overhead, and maintenance complexity.
+                                                                       3
+SpacemiT, Preview Version, 2026/01/29
+
+
+   We observe that the AI software stack is continuously evolving             the multicore interconnect to improve scalability and coherence
+toward greater complexity and deeper reliance on open-source de-              support.
+pendencies: spanning kernels and device drivers, containers and                  Beyond performance, X100 maintains a high degree of con-
+runtimes, compilers and frameworks, and the broader model ecosys-             formance and forward-compatibility in ISA support. For general-
+tem, key capabilities are increasingly composed from a set of rapidly         purpose computing, X100 does not introduce any additional pro-
+evolving upstream open-source components. This trend makes it                 prietary ISA extensions, relying exclusively on the official RISC-V
+difficult for a hardware vendor to sustain, over the long term, an            standard instruction set. Building on this foundation, it tracks the
+approach that “independently rebuilds a closed, proprietary stack”;           latest industry-standard evolution by supporting all mandatory
+instead, system software must be able to track upstream community             components of the RVA23 profile, while also implementing selected
+iterations and upgrades over time in order to remain competitive in           optional extensions and additional extensions not explicitly enu-
+functionality, performance, and security. In this context, adopting           merated in the profile, ensuring adaptability to future software-
+Linux as the underlying operating system to host and integrate                ecosystem and hardware-platform evolution.
+these open-source components is the most natural and most sus-
+tainable choice for constructing an AI software stack.                        3.1.1 Frontend.
+   Within today’s mainstream RISC-V software ecosystem, the host              The increase in dispatch width of the X100 imposes greater demand
+CPU domain typically uses Linux as the general-purpose software               on instruction fetch bandwidth at the front-end. To address this,
+substrate; meanwhile, in order to support AI frameworks and run-              the X100 processor core implements a series of key microarchitec-
+times and to maintain long-term compatibility with upstream open-             tural optimizations aimed at significantly enhancing the effective
+source components, the device-side/accelerator-side AI software               instruction fetch bandwidth. These enhancements ensure a sus-
+stack is, from an execution unit perspective, also effectively com-           tained and efficient supply of the instruction stream to the backend
+pelled to adopt Linux. If one follows the traditional heterogeneous           execution units. The optimizations are primarily focused on two
+“host CPU + accelerator” design, this is essentially equivalent to run-       critical dimensions: improving branch predictor performance and
+ning two largely identical Linux instances within the same system             increasing fetch parallelism.
+(with substantial overlap in both the kernel and baseline user-space             Branch Target Prediction: The X100 incorporates targeted opti-
+components) and coordinating them via cross-boundary mecha-                   mizations to the timing path of the L0 Branch Target Buffer (BTB)
+nisms. Such duplicated stacks not only incur additional resource              and moderately expands its entry capacity. Furthermore, by intro-
+consumption (memory, storage, and resident services), but also                ducing a more sophisticated replacement algorithm better suited
+introduce boundary-induced data-path and synchronization over-                to the locality characteristics of program branch accesses, the hit
+heads (IPC, data copies, and context switches), and significantly             rate of the L0 BTB is effectively improved. This enhancement di-
+increase the complexity of version maintenance, security patching,            rectly reduces front-end bubbles and the associated fetch pipeline
+and the verification matrix—thereby undermining overall system                disruptions caused by target address mispredictions.
+efficiency, maintainability, and long-term evolvability.                         Conditional Branch Direction Prediction: For conditional branch
+                                                                              direction prediction, the X100 employs a more advanced TAGE
+                                                                              (Tagged Geometric History Length) predictor, superseding the pre-
+                                                                              vious Bi-Mode algorithm. The TAGE predictor leverages long global
+3.1     X100                                                                  history patterns to make predictions, significantly improving the
+X100 is a high-performance processor core based on the RISC-V                 prediction accuracy for complex control-flow behaviors.
+instruction set architecture, providing full compliance with the                 Return Address Prediction: For function call returns, the X100
+RVA23 profile. It adopts a 4-wide dispatch, out-of-order microar-             implements a Return Address Stack (RAS) based on a linked-list
+chitecture, achieving high compute performance while balancing                structure. This design more robustly supports return address predic-
+energy efficiency and die-area cost. This design effectively targets          tion in out-of-order execution scenarios involving multithreading
+high-performance edge workloads and is also suitable for deploy-              or deeply nested function calls, thereby improving the prediction
+ment in entry-level servers. To meet the requirements of high-                performance for return instructions.
+performance computing and scalable multicore integration, X100                   Instruction Fetch Bandwidth Optimization: To improve fetch
+incorporates key features including multicore interconnect, virtual-          bandwidth, the X100 expands the organization of the Instruction
+ization support, reliability/ availability/ serviceability (RAS), and         Cache (ICache) from 2-way to 4-way set-associative. This modifica-
+security mechanisms.                                                          tion effectively reduces the probability of cache misses due to way
+   From an architectural standpoint, X100 takes OpenC910 (the                 conflicts, thereby enhancing the continuity of instruction supply. To
+open-source release of Xuantie C910) as the initial reference point,          further mitigate access latency, the X100 increases the data transfer
+and introduces extensive optimizations and functional enhance-                bandwidth between the ICache and the L2 Cache from 128 bits to
+ments across multiple subsystems. The major improvements in-                  256 bits per cycle. This reduces contention and occupancy of the
+clude: increasing frontend fetch bandwidth and improving branch               access channel to the lower-level cache.
+prediction accuracy; widening decode and dispatch and leveraging                 Instruction Dispatch and Fusion: To fully leverage the backend’s
+multiple techniques to enhance execution efficiency; restructur-              out-of-order execution capabilities, the X100 widens the instruction
+ing the load/store subsystem to increase memory bandwidth while               dispatch bandwidth from three to four instructions per cycle. This
+substantially reducing access latency; adding a vector execution              ensures that the decode and dispatch stages can continuously sup-
+unit compliant with the RISC-V Vector Extension v1.0; and refining            ply a sufficient stream of instructions to the backend. Additionally,
+                                                                          4
+SpacemiT K3: A RVA23 RISC-V AI CPU with 60 TOPS AI Compute                                                       SpacemiT, Preview Version, 2026/01/29
+
+
+
+
+                                                     Figure 2: Block diagram of X100 core.
+
+
+the X100 front-end integrates multiple statically determined instruc-       enables real-time detection of single-bit errors in cached instruc-
+tion fusion patterns. These patterns combine common instruction             tion data, significantly strengthening the reliability of instruction
+sequences into more efficient micro-operations. This instruction            storage. Concurrently, when an error is detected at the front-end,
+fusion mechanism effectively increases the useful instruction dis-          the error information is reported via the official RISC-V RERI (Reli-
+patch bandwidth without introducing new ISA extensions, thereby             ability, Availability, and Serviceability Error Reporting Interface).
+maintaining full RISC-V compatibility.                                      This capability allows for the accurate logging and reporting of
+   Reliability Enhancements: Beyond performance improvements,               various front-end reliability events, providing crucial support for
+the X100 front-end also incorporates reliability enhancements. Given        system-level diagnostics and recovery mechanisms. Collectively,
+that dirty cache lines cannot exist in an ICache, the X100 intro-           these features reinforce the overall RAS (Reliability, Availability,
+duces a parity check mechanism for the ICache. This mechanism               and Serviceability) characteristics of the X100 processor.
+
+                                                                        5
+SpacemiT, Preview Version, 2026/01/29
+
+
+
+
+                                                                                      Figure 4: X100 3-ALU pipeline structure.
+
+    Figure 3: Pipeline of X100 frontend branch predictor.
+                                                                            cache misses), effectively reducing instruction stall time. 3. Early
+                                                                            Front-End Resource Release on Mispredict: Resources in the front-
+3.1.2 Midcore.                                                              end pipeline are released earlier on mispredicted paths, reducing
+The mid-core encompasses the stages of instruction decode, rename,          the performance penalty associated with branch mispredictions. 4.
+dispatch, and issue. A primary focus of our microarchitectural re-          Enhanced Issue Queue Management: The balancing policy of the
+design at this stage was the transition from a 3-wide to an optimized       Issue Queue was modified, and an early deallocation mechanism
+4-wide pipeline structure.                                                  was introduced. These changes improve the utilization efficiency
+   In the baseline OpenC910 architecture, the Instruction Decode            of the Issue Queue, effectively providing additional queue depth.
+(ID) stage was 3-wide, while the subsequent Instruction Ready               Collectively, these optimizations significantly enhance the proces-
+(IR) stage had already been expanded to 4-wide to accommodate               sor’s instruction scheduling efficiency and resource management
+potential instruction splits originating from the ID stage. To align        capabilities during out-of-order execution.
+front-end throughput with backend capacity, we redesigned the
+decode logic to support 4-way parallel decoding.                            3.1.3 Memory Subsystem.
+   The increase in decode width necessitated corresponding en-              The memory subsystem constitutes a critical component of pro-
+hancements in downstream pipeline structures to handle the higher           cessor microarchitecture, responsible for address generation of
+instruction throughput. We accordingly increased the depth of the           memory instructions, virtual-to-physical address translation, cache
+Issue Queue to accommodate a larger number of in-flight instruc-            lookups, and scheduling of off-chip memory access transactions.
+tions, thereby preventing structural hazards caused by queue ca-            Its performance, typically measured by bandwidth and latency
+pacity limitations. Concurrently, we integrated an additional Arith-        metrics, represents one of the primary bottlenecks limiting over-
+metic Logic Unit (ALU) to mitigate structural conflicts arising from        all processor efficiency in modern designs. The X100 processor
+insufficient execution resources.                                           features a redesigned memory subsystem that demonstrates signifi-
+   The widening of the pipeline, deepening of buffers, and addition         cant improvements over its predecessor architecture in execution
+of execution units invariably introduce deterministic timing chal-          bandwidth, bus bandwidth, and bus latency.
+lenges. To alleviate potential critical path degradation associated
+with these expansions, we adopted a resource-sharing strategy for
+the new ALU. Instead of adding dedicated register file read ports,
+the new ALU reuses the read ports of the Branch Processing Unit
+(BRU). Specifically, when no branch instruction is being issued, the
+two integer issue queues can utilize the BRU’s register read ports
+to dispatch instructions to the additional ALU. This port-sharing
+approach enhances parallel execution capability while effectively
+containing the growth of critical timing paths, mitigating the risk
+of timing deterioration.
+   To further exploit the microarchitecture’s out-of-order execution
+potential, we implemented several key optimizations within the
+mid-core: 1. Immediate Operand Elimination: Logic was added to
+eliminate the allocation of physical registers for certain immediate
+operands, thereby alleviating register file pressure. 2. Early Wake-
+Up: A strategy was adopted to release dependent resources early
+during the execution of long-latency operations (e.g., division or L1        Figure 5: Mirco architecture of X100 Memory Subsystem.
+                                                                        6
+SpacemiT K3: A RVA23 RISC-V AI CPU with 60 TOPS AI Compute                                                        SpacemiT, Preview Version, 2026/01/29
+
+
+   The memory subsystem constitutes a critical component of pro-             address translation overhead in virtualized environments. The de-
+cessor microarchitecture, responsible for address generation of              sign also implements ECC protection for the DCache and supports
+memory instructions, virtual-to-physical address translation, cache          handling Poison reporting from Data Check errors when supported
+lookups, and scheduling of off-chip memory access transactions.              by the external bus interface, alongside compliance with the RISC-V
+Its performance, typically measured by bandwidth and latency                 standard Reliability, Availability, and Serviceability Error Report-
+metrics, represents one of the primary bottlenecks limiting over-            ing Interface (RERI). These features provide essential support for
+all processor efficiency in modern designs. The X100 processor               server-class applications.
+features a redesigned memory subsystem that demonstrates signifi-
+cant improvements over its predecessor architecture in execution
+bandwidth, bus bandwidth, and bus latency.                                   3.1.4 Vector.
+   The X100 incorporates two general-purpose pipelines, each equipped        X100 integrates an efficient vector processing subsystem that de-
+with dedicated load/store units. Correspondingly, the data cache             livers significant performance benefits for data-parallel workloads.
+(DCache) structure and organization were reconfigured to double its          This subsystem is characterized by its full compliance with the
+access bandwidth. However, increased bandwidth often elevates the            RISC-V Vector Extension Version 1.0 (RVV 1.0) and the RISC-V
+out-of-order execution of memory instructions, potentially intro-            Vector Crypto Extension to address the demands of data-intensive
+ducing more memory hazards—particularly false Read-After-Read                computing and high-performance security applications.
+(RAR) and Read-After-Write (RAW) hazards—that incur substantial                 Fundamentally, the X100 vector unit adheres to RVV1.0 with a
+pipeline flush and refill penalties. To mitigate this issue, the X100        fixed vector length (VLEN) of 256 bits and maximum element length
+implements a snoop monitor to filter false hazards and employs a             (ELEN) of 64 bits, supporting data types from INT8 to INT64 and
+micro-operation (uop)-granularity hazard predictor. This predictor           FP16/BF16 to FP64. The architecture further enhances throughput
+proactively identifies potential data dependency conflicts and de-           by featuring independent vector pipelines , including two arithmetic
+lays the execution of conflicting instructions, thereby significantly        pipelines and two load/store pipelines with each pipe dealing with
+reducing latency penalties associated with memory hazards.                   128-bit data, which can operate concurrently to maximize data
+   The X100 upgrades the bus width to 256 bits and utilizes a CHI-           processing efficiency.
+like protocol to interface with the multi-core interconnect unit,               Decoupled Microarchitecture. At the microarchitectural level,
+enhancing interconnection efficiency. Key optimizations include              the X100 VPU employs a decoupled approach relative to the scalar
+restructuring several critical buffers:                                      core. After initial decoding and scalar operand renaming within the
+    • The Write Merge Buffer (WMB) was redesigned to improve                 main pipeline, vector instructions are dispatched to an independent
+      merging efficiency and bus utilization while maintaining the           vector unit for subsequent splitting and execution. Compared to the
+      same entry count.                                                      tightly-interconnected modules of the scalar core, the vector unit is
+    • The Line Fill Buffer (LFB) and Victim Buffer (VB) were consol-         functionally more separated and occupies a significant silicon area.
+      idated into a unified Fill & Victim Buffer (FVB). This resource-       A decoupled vector unit not only provides enhanced flexibility and
+      sharing approach reduces total buffer resource overhead                configurability but also simplifies physical layout and floorplanning
+      while improving utilization efficiency, addressing structural          for the core.
+      conflicts that previously limited outstanding request capac-              At the architectural level, the X100 vector employs a decou-
+      ity and thereby enhancing the core’s overall outstanding               pled design strategy. After undergoing initial decoding and scalar
+      transaction capability.                                                operand renaming in the main pipeline, vector instructions are
+                                                                             dispatched to a dedicated, independent vector unit for subsequent
+  These buffer optimizations enable concurrent multi-line accesses
+                                                                             issue,split and execution. This relative decoupled design is moti-
+under the same cache index in both WMB and FVB, substantially
+                                                                             vated by the observation that the vector unit, compared to the
+improving bus bandwidth utilization in data-intensive workloads
+                                                                             tightly-interconnected modules of the scalar core, is functionally
+such as AI tensor operations.
+                                                                             more separated and occupies a significant silicon area. A decoupled
+  The X100 implements several latency-focused optimizations:
+                                                                             vector unit not only provides enhanced flexibility and configura-
+    • An early wake-up mechanism reduces load-to-use latency                 bility but also simplifies physical layout and floorplanning for the
+      in L1 miss/L2 hit scenarios.                                           core.
+    • Atomic memory operations (AMOs) are executed more atom-                   Vector instructions are first pushed in a dedicated vector instruc-
+      ically without instruction splitting, significantly lowering           tion buffer, which serves to decouple them from the main pipeline.
+      AMO execution latency and reducing live-lock probability               Instructions are then issued from this buffer for further processing.
+      during lock acquisition.                                               The vector unit supports the concurrent issue of up to two memory
+    • The data prefetcher incorporates a Stream-based Page Prefetch-         instructions and two computational instructions. Each issue port
+      ing (SPP) algorithm to improve coverage of irregular access            can handle an instruction micro-op in 128-bit granularity per cycle,
+      patterns, combined with a bus load feedback mechanism that             which means an instruction with LMUL=1 is issued as two 128-bit
+      dynamically adjusts prefetch distance to balance timeliness            micro-ops. The design choice of employing dual 128-bit data paths,
+      against bandwidth consumption.                                         as opposed to a single 256-bit path, is primarily driven by the need
+   The X100 adds support for the Hypervisor virtualization exten-            to balance hardware resource costs effectively. Given the wide va-
+sion. To improve multi-level page table walk efficiency, it caches           riety and high computational complexity of vector operations, a
+intermediate page table entries in the TLB, effectively reducing             finer-grained datapath width enables more efficient and balanced
+                                                                         7
+SpacemiT, Preview Version, 2026/01/29
+
+
+allocation of resources among different instruction types. For in-            copies between cache levels, this approach effectively increases us-
+stance, complex permutation operations may have only one 128-bit              able cache capacity. A 1:1.5 expansion ratio is employed to reduce
+execution unit and when two such instructions are issued concur-              the frequency of back-invalidations. In terms of latency optimiza-
+rently, only the older one can acquire the resource. This granularity         tion, the architecture enables early access to the L2 cache, with
+also facilitates parallelism between distinct functional resources, al-       pipeline operations canceled upon detected address conflicts. This
+lowing, for example, an addition instruction and a shift instruction          optimization significantly reduces the critical load-to-use latency,
+to be issued simultaneously and executed on their respective units.           as return data can be delivered directly to the core, bypassing the
+   Memory access efficiency is paramount for vector applications.             additional latency introduced by access transaction queues. Follow-
+The X100 decouples address generation and data handling for vec-              ing these optimizations, the load-to-use latency for an L1 miss with
+tor load/store instructions: the address phase is processed by the            an L2 hit can be as low as 17 cycles, accelerating the resolution
+main pipeline’s Load-Store Unit (LSU) for address calculation and             of data dependencies. The prefetching mechanism has also been
+memory access initiation, while the data phase is handled by the              enhanced. The memory subsystem integrates a next-line prefetcher
+vector unit for operand splitting and vector register dependency              and a best-offset prefetcher. The former is trained on instruction
+checking. Communication and data exchange between the two are                 and page table walk (PTW) misses, while the latter is trained on
+coordinated via instruction IDs. The LSU leverages its two existing           data access patterns. This combined approach improves both spa-
+memory pipelines to issue and process two vector memory instruc-              tial locality prediction and adaptability to complex access strides,
+tions in parallel. Correspondingly, the vector unit is equipped with          thereby boosting the overall cache hit rate.
+two matching splitter circuits to handle the data paths of these two             The memory subsystem doubles the number of cache banks, sup-
+memory instructions. By decoupling address and data processing,               porting parallel access to up to 4 banks. This significantly improves
+the main pipeline can forward instructions to the LSU as soon as              memory-level parallelism and internal data bandwidth. To match
+addresses are ready, without waiting for vector register dependen-            this design, the internal bus width has been expanded to 256 bits,
+cies to be resolved. This allows the LSU to initiate memory accesses          further unleashing the potential of memory bandwidth.
+promptly, thereby accelerating data retrieval and improving over-                The multi-core coherence protocol benefits from several key op-
+all memory efficiency. Furthermore, for handling complex vector               timizations. Bypass optimization techniques reduce the latency of
+memory patterns such as segment accesses, the LSU incorporates a              common snoop transactions by 4 cycles. The architecture supports
+dedicated transpose buffer to accelerate data reorganization, signif-         self-snooping, effectively resolving cache aliasing issues within
+icantly boosting execution efficiency.                                        a core, and enables precise bank snooping to reduce power con-
+                                                                              sumption. The internal state machine of the transaction queue
+3.1.5 Multi-core Interconnect.
+                                                                              has been redesigned, shortening the lifecycle of common multi-
+The X100 architecture implements a systematic and comprehen-                  core transactions and improving overall interconnect efficiency.
+sive upgrade to its multi-core interconnect system, targeting key             For high-concurrency lock acquisition scenarios, an exclusive Clea-
+bottlenecks in high-performance computing and server workloads.               nUnique transaction type has been introduced. This strategically
+This upgrade achieves co-optimization across latency, bandwidth,              avoids live-lock issues under heavy load, enhancing system stability
+and overall system efficiency, spanning critical layers including the         in highly competitive environments.
+cache hierarchy, memory subsystem, reliability mechanisms, and                   For server-grade Reliability, Availability, and Serviceability (RAS),
+coherence protocol.                                                           the X100 introduces a standard error reporting mechanism compli-
+                                                                              ant with the RISC-V RERI specification. This is integrated with the
+                                                                              foundational software layer to enable more accurate error handling
+                                                                              and system recovery. Regarding data integrity, the architecture
+                                                                              implements a poison mechanism for error tagging and propagation.
+                                                                              This is combined with data check technology to detect bus trans-
+                                                                              mission errors. The system can flexibly choose between delayed
+                                                                              reporting of error information via the RERI interface or immediate
+                                                                              return of traditional error signals. This flexibility allows the sys-
+                                                                              tem to balance reliability requirements with real-time performance
+                                                                              constraints.
+
+
+                                                                              3.2    A100
+                                                                              A100 is an AI-centric RISC-V AI-CPU that delivers native AI com-
+                                                                              pute capability through the SpacemiT-IME instruction-set exten-
+           Figure 6: Multi-core Interconnect of X100.                         sions. Its microarchitecture is deliberately optimized for operator-
+                                                                              level parallelism, memory bandwidth, and data locality to ensure
+   The X100 transitions from an inclusive to an exclusive cache               efficient execution of real-world AI workloads. In addition, it fully
+policy. Furthermore, it introduces a superior cache tag backup mech-          supports the general-purpose CPU functionality defined by RVA23
+anism for each core, enabling precise tracking of cache line states           (excluding the Hypervisor extension), thereby enabling large-model
+across the multi-core environment. By eliminating redundant data              inference and a broad range of AI applications under a standard
+                                                                          8
+SpacemiT K3: A RVA23 RISC-V AI CPU with 60 TOPS AI Compute                                                        SpacemiT, Preview Version, 2026/01/29
+
+
+RISC-V unified programming model. The hardware design is devel-             SpacemiT-IME provides a two-tier matrix multiply–accumulate
+oped along three primary axes:                                          capability. The per-core private IME-1.0 execution unit reuses the
+                                                                        Vector Unit’s low-throughput datapath with VLEN = 256/512, target-
+     • System Dimension (Integration): The AI unit is embedded
+                                                                        ing lightweight small-matrix MAC operations of INT8×INT8→INT32.
+        into the CPU pipeline as a tightly coupled coprocessor under
+                                                                        In contrast, the dual-core shared IME-2.0 execution unit adopts a
+        a single-ISA model, reducing driver overhead and context-
+                                                                        dedicated high-throughput datapath with VLEN = 1024/2048, tar-
+        switch latency, and eliminating the "heterogeneity tax."
+                                                                        geting higher throughput requirements and covering matrix MACs
+     • Computation Dimension (Computation): Targeting Trans-
+                                                                        across multiple mixed data types and mixed-precision modes. Table
+        former workloads, the design pursues model–hardware co-
+                                                                        3 summarizes the supported data types and matrix-shape definitions
+        design; via a vectorized microarchitecture and enhanced
+                                                                        in a unified manner.
+        low-/mixed-precision arithmetic, it increases operator paral-
+                                                                            Implementing RVV VLEN = 1024 ( an ultra-wide datapath) on a 12
+        lelism and improves energy efficiency.
+                                                                        nm process makes timing closure often difficult to achieve in a single
+     • Memory/Datapath Dimension (Dataflow): The dataflow and
+                                                                        pass with “default synthesis” alone and typically requires targeted
+        microarchitecture are planned with bandwidth as the central
+                                                                        iteration in conjunction with physical implementation. For example,
+        objective, and the design implements software-managed lo-
+                                                                        the register-file read/write ports and the bypass/selection network
+        cal memory and decoupled access–execute operation—specifically,
+                                                                        may be structurally partitioned and/or hierarchically pipelined;
+        overlapping memory movement with computation through
+                                                                        critical paths are then compressed via retiming and fanout con-
+        asynchronous DMA prefetch, thereby reducing execution
+                                                                        trol. In the backend, floorplanning, critical-block placement, and
+        stalls.
+                                                                        constraint-driven guidance are used to reduce timing degradation
+   Each cluster comprises four scalar cores, two vector cores, two      caused by long interconnects and congestion. Ultimately, A100
+local-memory banks, and a shared L2 cache. The two vector cores         closes PPA on the VLEN=1024–related critical paths at 2.1 GHz.
+share a single Tensor Core and one local-memory bank, with the
+goal of improving tensor-compute resource utilization and data-         3.2.2 Tensor Core.
+reuse efficiency under stringent area and bandwidth budgets. The        The  Tensor Core is shared by two compute cores and can accept one
+K3 chip integrates two A100 clusters.                                   matrix  multiply–accumulate (MMA) instruction per cycle from each
+                                                                        core. Oprands and results of MMA instructions are stored in vector
+3.2.1 Vector.                                                           registers. The vector subsystem provides 32 vector registers, each
+The A100 Vector Unit is driven by two parallel vector pipelines         with a width of 128B. Each core is equipped with an independent
+that perform vector-instruction splitting, dependency handling, and     512-bit load channel. The front end supports dual issue in the form
+vector register-file reads/writes, with results produced primarily      of one 512-bit load + one MMA instruction per cycle. We define
+in stages VE3–VE5. From an execution-organization perspective,          the operational intensity (a.k.a. compute-to-memory ratio) as 𝐼 =
+                                                                        𝑊
+the Vector Unit classifies operators into five categories according      𝑄    (MAC/Byte), where 𝑄 denotes the number of bytes transferred
+to "instruction types + datapath characteristics”: INT, FP, CRYPTO,     from   memory into vector registers. To approximate the steady-state
+                                                                                                                          𝑁 mac
+FDV, and IME-1.0.                                                       utilization of the MAC unit, we use 𝑈 = max(𝑁       mac ,𝑁 ld )
+                                                                                                                                        . where 𝑁𝑚𝑎𝑐
+   The register file is provisioned with VLEN = 1024-bit vector reg-    and 𝑁𝑙𝑑 denote, respectively, the number of cycles spent issuing
+isters, comprising 32 architectural vector registers (v0–v31). This     MMA instructions and memory loads. Consider an INT8 to INT32
+register width determines that a single vector instruction can oper-    MMA microkernel with parameters M = N = 8, and K=16. The
+ate on up to 1024 bits of data per instruction instance, substantially  total number of operations per MMA is 𝑊 = 𝑀 𝑁¤ 𝐾¤ = 1024 𝑀𝐴𝐶.
+increasing achievable throughput.                                       Case 1: Single MMA instruction (no tiling / no reuse): Matrix A
+   Compute-resource provisioning follows a simple guiding policy.       contains 8 × 16 INT8 elements, i.e., 128 B, which requires two 512-
+High-frequency, throughput-critical operators (add/sub, compare,        bit load cycles. Each MMA consumes a fresh instance of A (i.e.,
+shift, logic, and narrow-width multiply–accumulate) are preferen-       no reuse across MMA invocations): 𝑈 = 1/2 = 50%. The memory
+tially mapped to wider execution resources capable of dual-issue,       traffic in this case:𝑄 = 128B, which leads to 𝐼 = 1024    128 = 8 MAC/B.
+and are scheduled to produce results as early as possible in VE3        Case 2: Tiling with panelized loads and register blocking: We next
+(or VE4). Mixed execution widths follow the principle of “fixing        consider a tiled execution in which both A and B are panel-loaded
+width by mainstream precisions, slicing/packing by precision, and       and then reused via register-level 𝑚𝑅 ×𝑛𝑅 register blocking, thereby
+reusing resources for rare widths”: mainstream data types such          amplifying data reuse. Assume 16 vector registers are allocated to
+as INT8/INT16/BF16 define the critical datapath widths and lane         hold C-tiles. Each C-tile requires two vector registers, and 8 C-tiles
+counts; lane slicing and element packing increase parallelism for       are stored in vector registers simultaneously. Let the number of
+narrow precisions; and the relatively infrequent wider datapaths are    simultaneously accumulated tiles be 𝑟𝑚 × 𝑟𝑛 with the constraint
+realized via cross-lane merging or multi-cycle time-multiplexing to     𝑟𝑚 𝑟𝑛 ≤ 8. Under this scheme, 𝑟𝑚 panels of A and 𝑟𝑛 panels of B
+avoid over-provisioning for peak width. Low-frequency or struc-         must be loaded. 𝑟𝑚 𝑟𝑛 MMA operations are conducted and results are
+turally complex operators (e.g., permute/reorder, partial wide-width    accumulated into the resident C-tiles. Consequently, 𝑄 = 128(𝑟𝑚 +
+datapaths, and iterative division) deliberately constrain issue band-   𝑟𝑛 ), 𝑊 = 1024 𝑟𝑚 𝑟𝑛 , 𝐼 = 8 · 𝑟𝑟𝑚𝑚+𝑟
+                                                                                                           𝑟𝑛
+                                                                                                              𝑛
+                                                                                                                . Under the constraint 𝑟𝑚 𝑟𝑛 ≤ 8,
+width and datapath width to improve area and energy efficiency.         the maximum operational intensity is achieved at (𝑟𝑚 , 𝑟𝑛 ) = (2, 4),
+Table 2 summarizes the A100 compute-resource configuration using        yielding 𝐼𝑚𝑎𝑥 ≈ 10.67 MAC/B. For the maximizer, the load and
+                                                                                                                                          8
+a unified notation of "number of channels × per-channel bit-width":     MAC cycles are 𝑁 ld = 12 and 𝑁 mac = 8, and thus𝑈 = 12              ≈ 66.7%.
+                                                                        9
+SpacemiT, Preview Version, 2026/01/29
+
+
+
+
+                                                Figure 7: Block diagram of A100.
+
+
+
+
+              Figure 8: A100 Vector Execution Unit.                                Figure 9: Tensor Core of A100.
+
+
+
+                                                               10
+SpacemiT K3: A RVA23 RISC-V AI CPU with 60 TOPS AI Compute                                                                 SpacemiT, Preview Version, 2026/01/29
+
+
+ Domain                          Unit / Condition                   Resource Provisioning (channels × width)                             Result Stage
+   INT                  VAU (add/sub/compare/minmax)                                 2 × 256                                                 VE3
+   INT                     VSFT (shift/rotate/sat-shift)                             2 × 256                                                 VE3
+   INT                          VMA (SEW=8/16)                                       2 × 256                                                 VE3
+   INT                         VMA (SEW=32/64)                                       2 × 128                                                 VE4
+   INT                         VMSC (mov/logic)                                      2 × 256                                                 VE3
+   INT                    VMSC (others, e.g., clz/cpop)                              2 × 128                                                 VE3
+   INT            VPRM (slide/gather/compress/transpose, etc.)                       2 × 256                                     Implementation-dependent
+    FP                          FAU (SEW=16/32)                                      2 × 256                                                 VE3
+    FP                            FAU (SEW=64)                                       2 × 128                                                 VE3
+    FP                         FMA (SEW=16/32)                                       2 × 256                                                 VE4
+    FP                           FMA (SEW=64)                                        2 × 128                                                 VE5
+    FP                          FCV (SEW=16/32)                                      2 × 256                                                 VE3
+    FP                            FCV (SEW=64)                                       2 × 128                                                 VE3
+ CRYPTO          128-bit group (AES/GHASH / subset of SHA-2)                         2 × 256                                                 VE3
+ CRYPTO            256-bit group (SM3/SM4 / subset of SHA-2)                         2 × 128                                                 VE4
+  FDV         div/rem/sqrt (SRT iteration; shared int/FP resources)                  1 × 128                                       At iteration completion
+                                      Table 2: Execution resource of A100 Vector Execution Unit.
+
+
+       Unit                  Mode              Execution Width        Operation        AB                                                 CD
+      IME 1.0           Per-core private           256-bit           𝐷 =𝐴 · 𝐵 +𝐶
+                                                                        (𝐴 =) i8 (4 × 8), (𝐵 =) i8 (8 × 4)                         (𝐶/𝐷 =) i32 (4 × 4)
+                                                                          i4 : (𝐴)(8 × 32), (𝐵)(32 × 8)
+   IME 2.0 (INT)     Shared by two cores      1024-bit     𝐷 =𝐴 · 𝐵 +𝐶                                                                        —
+                                                                          i8 : (𝐴)(8 × 16), (𝐵)(16 × 8)
+    IME 2.0 (FP)     Shared by two cores      1024-bit     𝐷 =𝐴 · 𝐵 +𝐶     (𝐴/𝐵 =) fp16 or bf16 (8 × 8)                           (𝐶/𝐷 =) fp32 (8 × 8)
+                                Table 3: SpacemiT-IME execution modes and supported MMA shapes.
+
+
+                                                                                           Dual-core shared MAC:
+                                                                    Single Core: (I)                                          Dual-core shared MAC:
+                   Scenario                    Single Core: (U)                             total utilization (𝑈 total )
+                                                                       (MAC/B)                                                system-level(I) (MAC/B)
+                                                                                         (normalized to 1 MAC/cycle)
+   Single MAC instruction (A=1024-bit)         50%              8                                      100%      8
+       Tiling with register blocking
+                                              66.70%          10.67                  100%                      10.67
+     (16 vprs for C-tile, 𝑟𝑚 = 2, 𝑟𝑛 = 4)
+                     Table 4: MAC utilization and system-level efficiency under different execution scenarios.
+
+
+
+   Note: The effective throughput of the shared MAC engine satu-                  the objective of keeping the working set resident in near-core stor-
+rates to 1 MAC/cycle when the aggregate MAC throughput by the                     age as much as possible to provide stable data supply and minimize
+two cores exceeds 1 MAC/cycle. For this 8 × 16 × 8 microkernels,                  stalls. The latter primarily covers more memory-bound stages such
+even if a single core achieves the operational intensity of ≈ 10.67               as parameter reads and cache updates (especially the streaming
+via tiling, the rate at which it can generate MAC requests may still              access pattern during decode), with the goal of delivering robust
+fall short of the peak service rate of the shared MAC unit, thereby               sustained read bandwidth from the main-memory subsystem while
+leaving the area- and power-expensive MAC resources underuti-                     providing sufficient latency-hiding capability.
+lized. In contrast, when two cores can load data in parallel and                     The capacity provisioning of local memory is typically not the
+continuously issue MMA instructions to the shared MAC unit, the                   result of optimizing a single metric to its extreme; rather, it emerges
+aggregate utilization of the shared MAC engine can be driven to                   from a multi-objective trade-off between performance benefit and
+100%, i.e., full saturation (as reflected by both scenarios in the table).        implementation cost under the target system goals, where cost
+                                                                                  includes, but is not limited to, area, power, and bandwidth over-
+                                                                                  head. This configuration is also materially constrained by physical-
+3.2.3 Memory Subsystem.
+                                                                                  implementation factors, such as frequency ceilings imposed by
+A100’s memory-system optimizations concentrate on two access                      timing closure and area boundaries dictated by macro placement
+paths: local memory and main memory. When viewed across dif-                      and interconnect routing. Accordingly, this design choice can be for-
+ferent phases of LLM computation, the former primarily serves the                 malized as a canonical Pareto-optimal multi-objective optimization
+compute-bound phases characterized by high arithmetic intensity                   problem: selecting, within the feasible design space, a compromise
+and strong data reuse (i.e., the core vector/matrix operators), with
+                                                                             11
+SpacemiT, Preview Version, 2026/01/29
+
+
+solution that is not simultaneously dominated by any other alter-            Mandatory Extensions required by the RVA23 specification. How-
+native across all objectives.                                                ever, due to our distinctive scheduling architecture—under which AI
+                                                                             workloads are dispatched exclusively to the A100 for computation,
+                                                                             and the A100 core does not assume functions such as hypervisor
+                                                                             management—the A100 compute core does not implement the RISC-
+                                                                             V H extension (Hypervisor extension) in hardware. Nevertheless,
+                                                                             aside from the H extension, all other mandatory extensions speci-
+                                                                             fied by the RVA23 standard are fully implemented in hardware on
+                                                                             the A100.
+                                                                                We also made selective choices among the Optional Extensions
+                                                                             in the RVA23 specification and implemented a subset of them, with
+                                                                             the intent of ensuring strong forward-looking capability and adapt-
+                                                                             ability across the chip’s lifecycle.
+
+
+                                                                             3.3.1 Hypervisor.
+          Figure 10: A100 local memory size analysis.                        Virtualization abstracts physical hardware resources such that mul-
+                                                                             tiple virtual machines (VMs) can execute concurrently on a single
+                                                                             physical platform, thereby significantly improving resource utiliza-
+    During the architectural design phase, we constructed a uni-             tion, strengthening isolation, and enabling flexible multi-tenant
+fied performance–cost model for multiple classes of representa-              deployments. In the RISC-V ecosystem, virtualization is enabled via
+tive workloads (including CNNs, LLMs, and ViTs), and performed               the Hypervisor extension (H-extension), which provides efficient
+parametric sweeps to identify the respective knee points, i.e., the          hardware support for both CPU and memory virtualization. In ad-
+operating region beyond which further increases in local-memory              dition, the Advanced Interrupt Architecture (AIA) introduces the
+capacity yield sharply diminishing marginal performance returns              IMSIC, enabling CPU cores to receive MSI interrupts and to deliver
+while implementation cost continues to grow approximately lin-               interrupts directly to guest VMs, substantially reducing interrupt-
+early (or faster). Taking into account algorithmic evolution trends,         handling overhead and latency in virtualized environments.
+target-application coverage, and implementation-cost constraints,               On the K3 platform, the X100 core implements the Hypervisor
+we ultimately selected the knee point of Qwen-30B-A3B as the                 extension, and each physical core can support up to seven active
+engineering reference for local-memory provisioning, thereby pri-            VMs. However, the two-stage address translation required by vir-
+oritizing—in terms of design objectives—the cache/working-set                tualization introduces additional translation overhead, which can
+residency requirements of 30B–80B-scale models during inference.             materially impact application performance inside VMs. To miti-
+    The main-memory design is constrained in an engineering sense            gate this performance loss, the X100 core incorporates multiple
+using Little’s Law: in steady state, 𝑙𝑎𝑚𝑏𝑑𝑎 = 𝑊𝐿𝑎𝑡𝐼 𝑃 .                      optimizations at the translation lookaside buffer (TLB) level. First,
+    Here, 𝑙𝑎𝑚𝑏𝑑𝑎 corresponds to sustainable throughput/bandwidth,            the instruction TLB (ITLB) and data TLB (DTLB) directly cache
+𝑊 𝐼𝑃 denotes the amount of in-flight concurrent requests, and 𝐿𝑎𝑡            translations from guest virtual addresses (GVA) to system phys-
+is the average service latency. The implication for main-memory              ical addresses (SPA), such that, on an L1 TLB hit, virtualization
+optimization is direct: on the one hand, increase the maintainable           incurs no additional translation latency. Second, the L2 TLB not
+𝑊 𝐼𝑃 (i.e., more in-flight requests to cover DRAM latency and reduce         only retains GVA→SPA mappings, but also caches guest physi-
+bandwidth bubbles); on the other hand, reduce or amortize the                cal address (GPA) to SPA mappings to expand address-translation
+effective 𝐿𝑎𝑡 (i.e., mitigate conflicts and queuing delays).                 coverage. Furthermore, the page-table-walker (PTW) caches store
+    A100’s implementation follows these two principles. At the clus-         non-leaf page-table entries for GVA→GPA translation, accelerating
+ter level, the 𝑊 𝐼𝑃 scale is approximately 100, and the design adopts        page-table walks upon guest TLB misses. Collectively, these mech-
+asymmetric sharing: a single core is not constrained by a fixed              anisms aim to reduce memory-access latency and improve overall
+static quota and may borrow and occupy more than its equal-share             execution efficiency under virtualization. After enabling the above
+portion of the in-flight window when the workload demands it. At             virtualization support, detailed performance comparisons for the
+the system level, further reductions in effective 𝐿𝑎𝑡 are achieved           X100 core are reported in Section 6.1 of this paper.
+via channel/link latency optimizations. Consequently, in memory-                With respect to interrupt support, both the X100 core and the
+bound regimes, A100 is more likely to sustain high in-flight concur-         A100 core in the K3 platform support receiving external interrupts
+rency and to stably approach the achievable sustainable bandwidth.           in the form of MSI. Specifically, on X100, both machine mode (M-
+                                                                             mode) and supervisor mode (S-mode) support MSI external inter-
+3.3     Support for New RISC-V Features in K3                                rupt IDs 1–511; in addition, enabled by the Hypervisor extension,
+During the iterative evolution of our company’s chip products, the           each VM running in virtual supervisor mode (VS-mode) can support
+previous-generation K1 chip integrated the X60 processor core,               direct MSI passthrough for interrupt IDs 1–63. For A100, M-mode
+which fully complied with the ISA extension requirements defined             and S-mode likewise support MSI external interrupt IDs 1–511;
+by the RVA22 profile. In the new-generation K3 chip, the adopted             however, because this core does not implement the Hypervisor
+X100 processor core further provides comprehensive support for all           extension, it cannot provide VM-oriented interrupt passthrough.
+                                                                        12
+SpacemiT K3: A RVA23 RISC-V AI CPU with 60 TOPS AI Compute                                                          SpacemiT, Preview Version, 2026/01/29
+
+
+3.3.2 Vector Crypto.                                                           4 Software Stack
+Cryptographic operations are fundamental for data security and                 4.1 Operating System
+communication privacy. However, scalar ISAs often face throughput
+                                                                               From a hardware-architecture perspective, although the X100 and
+and energy-efficiency bottlenecks for large-scale or high-throughput
+                                                                               A100 processors share a homogeneous core lineage, their functional
+crypto workloads. To address this, RISC-V introduces Vector Cryp-
+                                                                               roles differ substantially, forming a typical asymmetric compute ar-
+tography extensions, providing vector-oriented crypto instructions
+                                                                               chitecture. X100 prioritizes general-purpose compute performance,
+that significantly improve parallelism and execution efficiency.
+                                                                               whereas A100 is optimized specifically for AI and high-throughput
+   The extension covers both international-standard algorithms
+                                                                               vector computation. This specialization is reflected in both the
+(e.g., AES, SHA-2) and Chinese commercial cryptography algo-
+                                                                               ISA feature set and hardware configuration: X100 implements the
+rithms (e.g., SM4, SM3). By operating on structured vector element
+                                                                               Hypervisor extension and is suitable for general server scenarios
+groups (Element Groups), it efficiently supports encryption/decryption,
+                                                                               requiring hardware-assisted virtualization; its vector length (VLEN)
+key expansion, and hashing. Its ISA design emphasizes data-independent
+                                                                               is 256 bits, targeting general-purpose vector processing. In contrast,
+execution latency, improving resistance to timing side-channel at-
+                                                                               A100 does not implement the Hypervisor extension, but increases
+tacks. It also supports multiple configuration “suites” (e.g., Zvkn,
+                                                                               VLEN to 1024 bits, enabling a significant throughput advantage for
+Zvks), balancing flexibility with specialized hardware optimization.
+                                                                               large-scale matrix operations and tensor computing.
+   In K3, both X100 and A100 implement Vector Crypto modules.
+                                                                                   Such asymmetry introduces challenges to OS-kernel schedul-
+They share the same implementation policy: SM3 and SHA2-64
+                                                                               ing. To exploit the flexibility of the fused heterogeneous platform
+use 256-bit element groups, while all remaining instructions use
+                                                                               while preserving deterministic execution behavior, we design and
+128-bit element groups. With Vector Crypto enabled, typical en-
+                                                                               implement a core-affinity-based scheduling scheme. In the current
+cryption/decryption kernels can achieve up to 60× performance
+                                                                               system, all 16 cores across X100 and A100 are managed by the Linux
+improvement over scalar execution; detailed data are reported in
+                                                                               kernel as an SMP system, and the OS exposes a unified 16-core log-
+Section 6.1.
+                                                                               ical view. However, the scheduling policy is explicitly partitioned:
+                                                                               the 8 A100 cores are designated as AI-dedicated accelerator cores,
+3.3.3 Precision Conversion Extensions.                                         serving only specific AI algorithms and vector-compute-intensive
+To meet the growing demand for large-model training and infer-                 tasks, and are excluded from general-purpose workload handling.
+ence, efficient low-precision compute has become critical. Both                Accordingly, user threads are, by default, bound to the X100 core set
+X100 and A100 are fully compatible with the RVA23 optional exten-              at creation time. Even when the X100 set is saturated, the system
+sion subsets for half-precision floating-point compute, including              does not migrate these workloads onto A100. Conversely, when a
+Zfh, Zvfh for FP16 scalar/vector operations, and Zfbfmin, Zvfbfmin,            task (e.g., AI inference or algorithms optimized to leverage 1024-bit
+Zvfbfwma for BF16 and BF16 matrix operations. This unified ISA                 vectors) requires A100, the application must bind the correspond-
+support ensures software compatibility and portability for foun-               ing threads to the A100 core set after thread creation. Once bound,
+dational FP16/BF16 operations, providing essential low-precision               these threads are constrained to execute only on A100 for their
+compute capability for AI workloads.                                           entire lifetime and are prohibited from migrating to X100.
+   Notably, A100 further integrates customized vector conversion                   While this policy addresses the baseline issues of mixed sched-
+instructions for FP8, supporting both E4M3 and E5M2 formats.                   uling between X100 and A100—ensuring ISA compatibility (e.g.,
+FP8, as an emerging lower-precision format, can halve storage                  preventing a thread composed only of general instructions from
+and transfer costs while maintaining acceptable numerical stability            being incorrectly scheduled onto an A100 core that supports only
+for key applications. Through tight microarchitectural integration,            a subset of AI-related instructions, which could otherwise trig-
+A100 implements these conversions into the execution pipeline,                 ger exceptions)—it also introduces system- and engineering-level
+substantially reducing FP8 to FP16/BF16 conversion latency and                 complexity. First, from a load-balancing perspective, the policy is
+improving conversion efficiency by orders of magnitude.                        not optimal: it may leave the A100 set idle while the X100 set re-
+   At the time of K3 design, RISC-V did not have an official OFP8              mains fully utilized, reducing overall resource utilization. Second,
+extension; as of this writing, RISC-V is defining a corresponding              cross-core migration is constrained by the need to strictly avoid
+OFP8 standard. Once ratified, future cores will migrate to the official        scheduling mismatched vector contexts (e.g., different VLEN state)
+standardized extension.                                                        across core types, increasing scheduler complexity. Third, from
+   Hardware-level precision conversion provides benefits beyond                a software-ecosystem standpoint, the current approach relies on
+conversion speed. Modern AI models widely adopt mixed-precision                modifying Linux kernel code, which is unfavorable for long-term
+strategies, since different layers/ops have different numerical sen-           maintenance and difficult to upstream into the mainline kernel
+sitivity and may employ different quantization methods. A100’s                 community. In addition, application developers must understand
+precision-conversion instructions enable dynamic, efficient on-                the underlying hardware-aware scheduling behavior to optimize
+demand precision switching across phases or compute units, greatly             effectively, raising the development barrier.
+reducing the high overhead of software-emulated conversions.                       To address these challenges, we are exploring an improved ap-
+Because data can be stored at higher precision only when nec-                  proach based on the Linux cpuset mechanism. This approach im-
+essary—and otherwise converted at low cost—this effectively re-                plements disciplined scheduling management by partitioning pro-
+duces off-chip bandwidth demand, which is crucial for bandwidth-               cessor affinity domains: X100 cores (CPU0–7) are configured as the
+bottlenecked AI acceleration scenarios.                                        default domain, while A100 cores (CPU8–15) are configured as an
+                                                                          13
+SpacemiT, Preview Version, 2026/01/29
+
+
+AI-exclusive domain. System workloads run in the default domain               inference engine and an AI compiler. The operator-library APIs
+by default. Only when a task is explicitly labeled by the application         are aligned with MLIR meta-op definitions, which ensures seman-
+as an AI task is it allowed to be placed into the AI-exclusive domain.        tic completeness and cross-framework compatibility. At the same
+This method shifts policy enforcement from kernel modifications               time, it exposes a C API that early versions of the AI compiler can
+to user-space configuration, leveraging Linux’s native resource               invoke. This allows the full compilation pipeline to be exercised
+isolation and management framework, and is expected to provide                before complete IR-based code generation is in place, which is a key
+clearer and more sustainable heterogeneous scheduling support                 enabler for K3 to bring up both AI inference and AI compilation
+while reducing overall system complexity.                                     rapidly in the early post-silicon phase.
+                                                                                 X100 runtime system. Both the AI-compiler path and the inference-
+4.2     AI Algorithms and Software Stack                                      engine path rely on X100 to schedule AI workloads onto the two
+An AI-DSA processor core that implements a complete set of RVV                A100 clusters. In the inference abstraction, all operators—such as
+and tensor-extension ISAs runs on top of Linux. It exploits multi-            convolution and GEMM, as well as Triton-compiled kernels—use an
+thread scheduling to express the parallel, tile-based computation             A100 cluster as the hardware scheduling unit, which maps equiva-
+pattern in AI inference, while the general-purpose X100 cores regu-           lently to a group of four A100 Linux threads. With two A100 clusters,
+late load balancing across A100 cores and provide fast-response syn-          the system forms two groups totaling eight A100 Linux threads,
+chronization, and can also handle selected asynchronous memory-               conceptually analogous to CUDA multi-stream execution. The X100
+transaction tasks. On this foundation, we build an AI compute                 runtime dynamically dispatches tile-level compute tasks issued by
+software stack that integrates a hand-tuned operator library, an              the inference engine and by Triton onto the currently least-loaded
+AI compiler, and a runtime system. The stack follows a pragmatic              A100-cluster thread group. In subsequent designs, K3 will further
+evolution path: first achieve peak performance for proprietary sce-           support distributed inference, where the runtime becomes topology-
+narios via hand-written kernels, then introduce compiler-based                aware and schedules tile tasks in a locally optimal manner, thereby
+generation to generalize these performance wins. Concretely, the              preserving a transparent programming model while improving the
+system is implemented as an inference engine based on ONNX                    scalability of the inference engine.
+Runtime with a private backend, together with a tile-based Triton
+operator compiler; both share the same runtime system as well as              5 Evaluation
+a unified threading and memory-optimization strategy.                         5.1 CPU Performance
+                                                                              5.1.1 Baseline Benchmarks.
+                                                                              In the K3 design, general-purpose compute workloads are primar-
+                                                                              ily executed by the X100 cores. To accurately evaluate and quan-
+                                                                              tify the general-purpose processing capability of X100, we use the
+                                                                              industry-standard SPEC CPU2006 integer suite (SPEC CINT2006)
+                                                                              as the baseline benchmark. This suite consists of a set of integer,
+                                                                              compute-intensive programs that approximate real application be-
+                                                                              haviors, and provides broad coverage of processor characteristics
+                                                                              such as integer execution efficiency, branch prediction effectiveness,
+                                                                              and memory-subsystem performance under diverse workloads in-
+                                                                              cluding compilation, interpretation, file manipulation, and path
+                                                                              searching.
+
+
+  Figure 11: Software stack of the K3 AI compute system.
+
+   During the early phase of the K3 AI software-stack bring-up,
+we prioritize a hand-tuned operator layer together with a tile-level
+runtime scheduler, and interface it directly with the dominant in-
+ference ecosystem, ONNX Runtime. This enables rapid end-to-end
+enablement of a broad range of AI models, while accumulating
+reusable assets—including optimal instruction/compute sequences
+for hand-written kernels and multi-thread, multi-cluster scheduling
+policies—which in turn provide sufficient methodological ground-
+ing for a later transition to a more generalizable compiler-centric
+form of AI software.
+4.2.1 - End-to-end deployment form factor and engineering imple-                            Figure 12: SPEC CPU 2006 of X100.
+      mentation highlights.
+Unified API operator library. At the outset of AI software devel-                Figure 12 reports the overall single-core SPEC CINT2006 score
+opment, we commit to two parallel tracks: a hand-written-kernel               of X100 as well as the per-benchmark score breakdown. For all
+                                                                         14
+SpacemiT K3: A RVA23 RISC-V AI CPU with 60 TOPS AI Compute                                                            SpacemiT, Preview Version, 2026/01/29
+
+
+           Table 5: SPEC2006 peak compare in VM.                                      Table 6: OpenSSL Vector Crypto accelerate ratio.
+
+   benchmark         SPEC2006 peak        peak in VM         decrease(%)                benchmark        16 bytes   256 bytes      16384 bytes
+  400.perlbench          21.10               20.60              -2.33%                   chacha20           0.5        1.1             2.1
+    401.bzip2            17.83               17.72              -0.64%                    sha256            1.8        3.8            10.5
+     403.gcc             17.95               16.15             -10.03%                    sha512            1.4        1.7             2.3
+     429.mcf             15.38               12.84             -16.54%                      SM3             1.5        2.1             2.6
+   445.gobmk             19.57               19.34              -1.16%                  aes-128-cbc         4.7        12             13.9
+   456.hmmer             48.72               48.65              -0.14%                  aes-256-cbc         4.8       12.1            13.7
+    458.sjeng            16.85               16.34              -3.03%                      SM4             3.5        5.9             6.2
+ 462.libquantum         101.11               98.48              -2.60%                    GHASH             2.5       21.3            46.6
+   464.h264ref           37.78               37.14              -1.69%                 hmac(sha256)         1.9        3.2            10.2
+  471.omnetpp            12.12               10.84             -10.53%
+    473.astar            14.20               12.85              -9.49%
+ 483.xalancbmk           18.73               17.61              -5.99%
+                                                                                all results are normalized to the scalar baseline, i.e., the scalar im-
+   GEOMEAN               22.88               21.62              -5.48%
+                                                                                plementation is set to 1, and optimized variants are reported as
+                                                                                relative speedups.
+                                                                                   The results clearly show that for algorithms such as AES, SHA,
+measurements, the X100 core runs at a fixed frequency of 2.4 GHz                SM3, SM4, and GHASH, the Vector Crypto ISA defines dedicated
+with the system memory configured as LPDDR5.                                    acceleration instructions, yielding order-of-magnitude gains over
+                                                                                both scalar implementations and generic vectorized implementa-
+5.1.2 Virtualization Performance.                                               tions. Taking AES as an example, Vector Crypto introduces spe-
+For virtualization performance evaluation, we use the same hard-                cialized table-lookup instructions that effectively eliminate cache-
+ware configuration (X100 cores at 2.4 GHz with LPDDR5-6400) and                 access overhead commonly associated with conventional lookup-
+quantify general-purpose compute performance under virtualiza-                  table approaches; under large-message scenarios (e.g., 8 KB blocks),
+tion using the SPEC CPU2006 integer suite (CINT2006). The results               the normalized performance reaches nearly 14× of the scalar base-
+show that the virtualization overhead varies significantly across               line. For GHASH, the X100/A100 architecture efficiently imple-
+benchmarks due to differences in computational characteristics,                 ments the Vector Crypto instruction vghsh. This instruction adopts
+with performance losses ranging from 0.1% to 16%. Overall, virtual-             a deeply pipelined design and completes each iteration in only 3
+ization reduces the aggregate SPEC CINT2006 score by 5.48%, as                  cycles, raising normalized performance to 46× of the scalar baseline,
+summarized in Table 5.                                                          which highlights the advantage of Vector Crypto for specialized
+   A closer examination of per-benchmark results indicates that the             application domains.
+performance loss correlates strongly with the workload’s memory-                   In contrast, ChaCha20 is dominated by shifts and modular addi-
+access behavior and control-flow complexity. Benchmarks with                    tions, which offers relatively limited vector-acceleration potential.
+irregular memory-access patterns that limit the effectiveness of                It can only obtain modest gains from a small set of instructions
+hardware prefetching (e.g., 429.mcf), as well as benchmarks with                such as vector rotate (vror). As a result, its advantage becomes
+complex control flow and hard-to-predict branches (e.g., 403.gcc),              pronounced only at sufficiently large message sizes (e.g., > 64 KB
+exhibit more pronounced slowdowns under virtualization. The un-                 blocks), where throughput improvements from vector parallelism
+derlying cause is the increased penalty on TLB misses due to the                gradually amortize instruction-level overheads.
+additional address-translation stage introduced by virtualization
+(e.g., two-stage translation via mechanisms such as EPT or shadow
+                                                                                5.2    AI Performance
+page tables). When a workload’s access stream cannot be effectively
+covered by the TLB, each translation miss triggers an extra map-                5.2.1 Memory Read Bandwidth.
+ping step from guest-physical to host-physical addresses, which                 For LLM inference, decode-phase TPS is often dominated by effec-
+increases effective memory-access latency and intensifies pressure              tive read bandwidth: generating each token triggers a full-model
+on the memory subsystem, thereby further degrading performance.                 forward pass, and if weights/intermediate data cannot remain resi-
+                                                                                dent in cache over time, the bottleneck shifts from compute to the
+5.1.3 Cryptography Performance.                                                 sustained throughput of reading data from memory.
+To evaluate the performance impact of Vector Crypto on crypto-                     A memory-access pattern that more closely matches the hard-
+graphic workloads, we use OpenSSL as the benchmark suite, which                 ware objective of “fully utilizing the memory controllers” is thread-
+integrates a broad range of cryptographic algorithm implementa-                 sharded multi-stream sequential read. In this pattern, a contiguous
+tions and provides a standardized test environment. Specifically,               physical address range (or a page/block-partitioned region) is di-
+we employ the built-in speed command in OpenSSL to benchmark                    vided into N non-overlapping streams (chunks); N threads/cores are
+multiple algorithms. This command quantifies throughput and op-                 pinned, and each core linearly scans its own stream with cacheline
+eration latency across algorithms; during testing we sweep variable             strides (optionally assisted by prefetching). The streams run in par-
+message sizes (e.g., from 16 bytes to 16,384 bytes) to emulate dif-             allel with minimal barrier synchronization, continuously issuing
+ferent workload regimes. To facilitate cross-algorithm comparison,              read requests so that the memory controllers can saturate the read
+                                                                           15
+SpacemiT, Preview Version, 2026/01/29
+
+
+            Table 7: A100 Main Memory Bandwidth.                                             Table 8: Typical CNN performance.
+
+                      Read Bandwidth    Relative to normal                                                   Batch = 1      Batch = 1     Batch = 2
+                                                                                Model/Inference Config
+          normal           10139               1.00x                                                         Thread = 1     Thread = 4    Thread = 4
+          vector           32412               3.20x                                     ResNet50                52            129           165
+          opt v1           32654               3.22x                                     RepVGG                 207            451           570
+          opt v2           33226               3.28x                                     YOLOv8s                  9             31            44
+          opt v3           32360               3.19x
+          opt all          33214               3.28x
+                                                                               translates into higher single-stream throughput and stronger scal-
+                                                                               ing when increasing software parallelism (threads) and modestly
+                                                                               increasing batch size, as shown Table 8.
+datapath via queuing and reordering. This pattern is prefetcher-
+                                                                               6    Acknowledgements
+friendly, increases MLP (memory-level parallelism), and scales well
+with core count, typically approaching the peak bandwidth of an                We thank the RISC-V open-source ecosystem, which enabled the
+LPDDR5 interface. In the LLM decode phase, A100’s parameter                    K3 chip to rapidly integrate into a relatively complete and mature
+reads are, in essence, organized as per-layer weight accesses struc-           software stack. We also thank the organizations and companies
+tured into multi-core, segmented linear streams, using this multi-             contributing to the open ecosystem. The baseline X100 implemen-
+stream sequential-read pattern to continuously drive the memory                tation is based on Xuantie’s open-source OpenC910; the baseline
+system toward bandwidth saturation.                                            RT24 real-time core is based on openhwgroup’s open-source CVA6.
+   Below we report the measured bandwidth under the K3 test setup              During X100 convergence and iteration, we utilized the Xiang-
+by progressively enabling A100’s read-bandwidth-related hardware               shan toolchain, including the xs-gem5 modeling tool for front-end
+optimization knobs (system-level optimizations are still in progress;          modeling, architecture exploration, and performance analysis; Xi-
+the results below do not represent final peak performance):                    angshan’s NEMU-based slicing flow, DRAMSim environment, and
+                                                                               top-down analysis tools to accelerate benchmark analysis and it-
+5.2.2 Advantages of 1024-bit Vectors.                                          eration. We also leveraged a large set of community open-source
+With RVV configured at VLEN=1024 and 32 architectural vector                   tools and test suites, including but not limited to spike, force, rv-dv,
+registers, the programming model can be viewed as providing an                 rv-arch-tests, to accelerate convergence of K3 general-purpose CPU
+effective 4 KB ultra-fast local scratchpad, which enables stronger             IP, AI CPU IP, and real-time CPU IP.
+locality optimizations in certain specialized scenarios.
+   Norm-style broadcast computation. This pattern typically takes              References
+the form C = A[..., C] * Scale[C], where the channel dimension C                   TBD
+is often 128/256/512/768. With VLEN=1024, 16 vector registers are
+sufficient to hold the Scale vector for C < 512, so the Scale tensor
+only needs to be loaded once globally. This reduces pressure on the
+L1/L2 caches by avoiding repeated scale fetches during the main
+compute loop.
+   FlashAttention. In FlashAttention, the hidden dimension is com-
+monly 128 or 64. Under FP16 precision, two vector registers can
+hold the hidden dimension for one sequence chunk. Even without
+tensor-extension instructions, RVV alone can eliminate the inner
+loop over the hidden dimension, and keep the 𝑉 · 𝑄𝐾 accumulation
+resident in 2-4 vector registers, making the compute path largely
+independent of L1/L2 caching during the accumulation phase.
+   Reducing the likelihood of VPR spills. During compiler register
+allocation, code that heavily uses LMUL=4 or LMUL=8—especially
+in transcendental-function approximations such as exp and tanh—is
+prone to vector register spills, which degrades the instruction sched-
+ule and overall performance. With VLEN=1024, using LMUL=1 can
+provide a compute width equivalent to VLEN=256 with LMUL=4,
+substantially reducing the probability of vector-register spills and
+improving kernel robustness.
+
+5.2.3 Typical CNN Performance.
+A 1024-bit vector datapath enables higher per-core data-level paral-
+lelism and improves the efficiency of tile-level parallel execution for
+compute-dense kernels (e.g., convolution/GEMM). In practice, this
+                                                                          16
+
