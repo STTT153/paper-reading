@@ -13,19 +13,36 @@ Research task this week: Survey Xuantie C910 to determine: Whether vector instru
 
 - **26.3.6**: Report the survey on XuanTie910, K3. Continue survey on ara processor. Professor still advise to look at ANN.
 
+- **26.3.13**: 
 
+
+```
+What I've learnt:
+- RVV ISA
+- Microarchetecture Implmentation (Saturn, K3, Xuantie-910, Ara)
+- HNSW - A graph-based ANN algorithm
+- General idea of LLVM
+
+What I've contributed:
+- A survey on ANN
+- A survey on K3, Xuantie-910 microarchitecture
+- A survey on Ara microarchitecture (this week)
+```
 
 # Reading List
 
-## RISC-V Vector Extensionß
+## RISC-V Vector Extension
 - [x] Saturn Microarchitecture Manual
 - [x] RVV Manual Book
 - [ ] Arrow: A RISC-V Vector Accelerator for Machine Learning Inference
 - [x] K3
 - [x] Xuantie-910
 
+## LLVM
+- [ ] LLVM paper
+
 ## HPC
-- [ ] Communication-Avoidßing General Matrix Multiplication within a single GPU
+- [ ] Communication-Avoiding General Matrix Multiplication within a single GPU
 
 ## ANN
 - [x] HNSW paper
