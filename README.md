@@ -11,6 +11,12 @@ This repository contains notes on research papers, technical documents, and lear
 - **26.1.31**: Professor advised to look into Near-Memory Computation (NMC), which might help mitigate cache problems caused by long vectors. Observed that many optimizations happen at runtime rather than compile time.
 Research task this week: Survey Xuantie C910 to determine: Whether vector instructions are executed in-order or out-of-order. At what granularity instructions are executed in-order vs. out-of-order (e.g., instruction, micro-op, vector element).
 
+- **26.3.6**: TODO: Look into the micro-implementation of Ara.
+
+- **26.3.13**: Reporst on the micro-implementation, TODOs: Look into the detail implmentation of Ara (Simulator), wrtie benchmarks of simulators.
+
+- **26.3.20**: This week, write tests to determine whether vector chaining occurs in two specific scenarios: (1)Two  nonsequential access instructions chaining. (2) Mask-generation instructions chain with instructions that consume the generated masks.
+
 
 
 # Reading List
