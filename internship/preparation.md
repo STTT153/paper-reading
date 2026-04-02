@@ -68,17 +68,142 @@ I/O 多路复用是一种单线程/单进程同时监控多个 I/O 事件的机�
 
 操作系统用红黑树实现管理所有的fd，通过回调机制将触发事件的fd储存到链表中。
 
+## c/cpp 语言特性
+### 内存管理
+#### 栈和堆的区别？new/malloc 有什么不同？
+栈由编译器自动管理，分配速度快，空间小（一般 8MB），函数返回自动释放。堆由程序员手动管理，空间大，需显式释放。
 
-## 进程间通信
-> 进程间通讯编程
+``` c
+// malloc：C风格，只分配内存，不调用构造函数
+int* p = (int*)malloc(sizeof(int));
+free(p);
 
-### Pipe
+// new：C++风格，分配内存 + 调用构造函数
+MyObj* o = new MyObj();
+delete o;  // 调用析构函数 + 释放内存
+```
 
-### mmap-munmap
+#### 内存泄漏怎么产生的？如何避免？
+new 了没 delete、异常路径跳过 delete、循环引用（shared_ptr 互指）都会导致泄漏。
+```c 
+// 危险写法
+void bad() {
+    int* p = new int[100];
+    if (error) return;  // 泄漏！
+    delete[] p;
+}
 
-### Socket
+// 正确：RAII + 智能指针
+void good() {
+    auto p = std::make_unique<int[]>(100);
+    if (error) return;  // 自动释放
+}
+```
 
-### MPI
+#### 智能指针 unique_ptr / shared_ptr / weak_ptr 各自用途？
+``` c
+// unique_ptr：独占所有权，零开销，不可拷贝只能move
+auto u = std::make_unique<MyObj>();
+auto u2 = std::move(u);  // u 变 nullptr
+
+// shared_ptr：引用计数，多个指针共享同一对象
+auto s1 = std::make_shared<MyObj>();
+auto s2 = s1;  // 引用计数 +1，= 2
+
+// weak_ptr：弱引用，不增加计数，解决循环引用
+std::weak_ptr<MyObj> w = s1;
+if (auto locked = w.lock()) { /* 使用 */ }
+```
+
+#### 什么是 RAII？在存储系统开发中有何意义？
+Resource Acquisition Is Initialization：资源在构造时获取，在析构时释放。利用 C++ 对象生命周期自动管理资源，保证异常安全。
+``` c
+class FileHandle {
+    FILE* fp;
+public:
+    FileHandle(const char* path) : fp(fopen(path,"r")) {}
+    ~FileHandle() { if(fp) fclose(fp); }
+};
+// 离开作用域自动关闭文件，异常也不会泄漏
+```
+
+### 面向对象
+#### 虚函数和纯虚函数的区别？虚表（vtable）是什么？
+虚函数: 在基类中用virtual修饰，允许在子类中override。
+纯虚函数: 在基类中没有实现，子类必须实现
+
+虚函数作用: 允许运行时多态。联想模拟器项目，用户可以在命令行启动模拟器时调整不同的Cache读写规则(write through, write back)， 这个时候就要Cache的基类，将读写相关的函数用虚函数实现。
+
+虚表是虚函数的实现原理: 每一个虚类都会有一个vtable, 每一个instance有一个vptr指向vtable, 在调用函数的时候这个vptr用来寻址。
+
+代价是每次调用都多一次间接寻址，并且无法内联
+
+#### 深拷贝和浅拷贝
+浅拷贝：只复制指针，两个对象共享同一块堆内存，析构时 double free。深拷贝：复制指针指向的数据本身。
+
+#### 虚继承解决什么问题？
+菱形继承问题：D 继承 B 和 C，B 和 C 都继承 A，则 D 中有两份 A 的成员，产生二义性。虚继承保证只有一份 A。
+``` c
+class A { int x; };
+class B : virtual public A {};
+class C : virtual public A {};
+class D : public B, public C {};
+```
+
+### STL容器
+#### unordered_map vs map，底层实现和复杂度对比？
+``` c
+// map：红黑树，有序，所有操作 O(log n)
+std::map<string,int> m;
+m["key"] = 1;  // 按key有序存储
+
+// unordered_map：哈希表，无序，平均 O(1)，最坏 O(n)
+std::unordered_map<string,int> um;
+um["key"] = 1;  // 更快但无序
+```
+
+#### priority_queue 底层是什么？
+底层：二叉堆（数组存储），父节点 i 的子节点是 2i+1 和 2i+2。插入和删除 O(log n)，堆顶访问 O(1)。
+
+## 数据结构
+### 红黑树
+1. 每个节点是红色或黑色
+2. 根节点是黑色
+3. 所有叶子节点（NIL/null）是 黑色
+4. 红色节点不能有红色子节点（不能连续红）
+5. 从任意节点到其所有叶子节点的路径上，黑色节点数量相同（黑高一致）
+
+最长路径 ≤ 最短路径的 2 倍
+
+### B树 B+树
+B+ 树特点：① 所有数据只在叶节点 ② 叶节点通过链表串联（支持范围查询）③ 内节点只存 key 做索引，能塞入更多 key ④ 高度矮（3-4层可覆盖百亿数据）。为什么适合磁盘：每个节点大小 = 一个磁盘页（4KB/16KB），单次 IO 读一个节点，减少磁盘访问次数。红黑树节点小、树高大，IO 次数多。
+
+
+## Linux 指令
+### 如何查看系统资源使用情况：
+top: -m 按照内存使用情况 -p 按照CPU使用情况
+
+ps aux: 查看所有的进程
+
+pstree: 查看进程数
+
+### 如何使用Linux Pipe
+
+| 将左侧的输出作为右侧的输入
+
+ps aux | grep nginx: 查看进程，只显示包含 nginx 的行
+
+cat /var/log/syslog | grep "error": 查看日志，过滤错误信息
+
+ps aux | wc -l: 统计进程数
+
+命令 | awk '条件 { 动作 }'
+
+>>: 将内容输出到文件中，追加
+
+>: 将内容输出到文件中，覆盖
+
+
 
 ## 项目1 操作系统
 什么是CFS(Completely Fair Schedule): 而是用“虚拟运行时间”（vruntime）来衡量一个进程已经占用的 CPU 时间，每次调度时选择 vruntime 最小的进程运行。这样，长时间未获得 CPU 的进程的 vruntime 相对较小，从而更容易被选中，实现了自然的公平。系统维护一个红黑树，做pid的查找。
@@ -147,3 +272,4 @@ pthread_mutex_t
 ## 项目3 LLVM-MCA 测试
 
 ## 项目4 Android与架构
+
