@@ -144,3 +144,233 @@ below.
 在user-level thread切换的时候不会陷入到内核
 
 User-level thread v.s. kenel-level thread. 多个user level thread在kernel看来是一个。而kernel-level thread可以真正由内核调度。
+
+### 3.8 Vector Fixed-Point Rounding Mode Register `vxrm`
+> The vector fixed-point rounding-mode is given a separate CSR address to allow independent access, but is also reflected as a field in `vcsr`.
+
+Rouding相关的信息同时存储在`vxrm` 和 `vcsr`中。
+
+Round to nearest even:优先判断距离，当距离一致时，选择舍入结果为偶数。
+
+> r = v[d-1] & (v[d-2:0]≠0 | v[d])
+
+**距离优先：**
+
+当v[d-1]为0 -> 不进位
+
+当v[d-1]为1 -> 其余位任意位为1 -> 进位
+
+**平局决胜：**
+
+当v[d-1]为1 -> 其余为都为0 -> v[d]决定是否进位
+
+### 3.9 Vector Fixed-Point Sturation Flage `vxsat`
+
+### 3.10 Vector Control and Status Register `vcsr`
+`vcsr[0]`: vxsat
+
+`vcsr[2:1]`: vxrm[1:0]
+
+### 3.11 State of Vector Extension at reset
+
+## 4. Mapping of Vector Elements to Vector Register State
+### 4.1 Mapping for `LMUL` = 1
+
+### 4.2 Mapping for `LMUL` < 1
+> When LMUL < 1, only the rst LMUL*VLEN/SEW elements in the vector register are used. The remaining space in the vector register is treated as part of the tail, and hence must obey the vta setting.
+
+### 4.3 Mapping for `LMUL` > 1
+
+### 4.4 Napping across Mixed-Width Operations
+> The vector ISA is designed to support mixed-width operations without requiring additional explicit rearrangement
+instructions. The recommended software strategy when operating on multiple vectors with different precision values is to
+modify vtype dynamically to keep SEW/LMUL constant (and hence VLMAX constant).
+The following example shows four different packed element widths (8b, 16b, 32b, 64b) in a VLEN=128b implementation.
+The vector register grouping factor (LMUL) is increased by the relative element size such that each group can hold the same
+number of vector elements (VLMAX=8 in this example) to simplify stripmining code.
+
+`VLMAX` = `LMUL` × `VLEN` / `SEW` 
+
+> A vector mask occupies only one vector register regardless of SEW and LMUL.
+Each element is allocated a single mask bit in a mask vector register. The mask bit for element i is located in bit i of the mask
+register, independent of SEW or LMUL.
+
+## 5. Vector Instruction Formats
+### 5.1 Scalar Operands
+> Scalar operands can be immediates, or taken from the x registers, the f registers, or element 0 of a vector register. Scalar
+results are written to an x or f register or to element 0 of a vector register. Any vector register can be used to hold a scalar
+regardless of the current LMUL setting.
+
+`x register`: general purpose register
+
+`f regsiter`: floating point register
+
+> We considered but did not pursue overlaying the f registers on v registers. The adopted approach reduces vector register pressure,
+avoids  interactions  with  the  standard  calling  convention,  simplies  high-performance  scalar  floating-point  design,  and  provides
+compatibility with the Znx ISA option. Overlaying f with v would provide the advantage of lowering the number of state bits in some
+implementations, but complicates high-performance designs and would prevent compatibility with the proposed Znx ISA option.
+
+`overlaying`: 让 f0–f31 和 v0–v31 物理上共享同一组硬件寄存器（比如 f0 就是 v0 的低 64 位）
+
+### 5.2 Vector Operands
+> Each vector operand has an effective element width (EEW) and an effective LMUL (EMUL) that is used to determine the size and location of all the elements within a vector register group. By default, for most operands of most instructions, EEW=SEW and EMUL=LMUL.
+
+Example: `vadd.vv`
+
+> Some vector instructions have source and destination vector operands with the same number of elements but different
+widths, so that EEW and EMUL differ from SEW and LMUL respectively but EEW/EMUL = SEW/LMUL. 
+
+> For example, most widening arithmetic instructions have a source group with EEW=SEW and EMUL=LMUL but have a destination group with EEW=2*SEW and EMUL=2*LMUL. Narrowing instructions have a source operand that has EEW=2*SEW and EMUL=2*LMUL
+but with a destination where EEW=SEW and EMUL=LMUL.
+
+`vwadd.vv vd, vs2, vs1`
+- vs2, vs1：元素宽度 = SEW（如 16-bit
+- vd：元素宽度 = 2×SEW（如 32-bit）
+- 执行：vd[i] = (int)vs2[i] + (int)vs1[i]（无溢出）   
+
+> Vector operands or results may occupy one or more vector registers depending on EMUL, but are always specied using the
+lowest-numbered vector register in the group. Using other than the lowest-numbered vector register to specify a vector
+register group is a reserved encoding.
+
+When `LMUL` is set to 2, `v0`-`v1`, `v2`-`v3` form 2 register groups (logic vector). `vadd.vv v0, v2, v4` the lowest-numbered vector registers are used to specify the vector group.
+
+> A destination vector register group can overlap a source vector register group only if one of the following holds:
+- The destination EEW equals the source EEW.
+- The destination EEW is smaller than the source EEW and the overlap is in the lowest-numbered part of the source
+register group (e.g., when LMUL=1, `vnsrl.wi v0, v0, 3 `is legal, but a destination of v1 is not).
+
+`vnsrl.wi v0, v0, 3 `: 假设当前SEW=32, 对 v0 中的每个 64 位无符号整数，执行逻辑右移 3 位，然后将结果的低 3 位截断（只保留低 32 位），存回 v0 的对应位置。
+
+When executing this instruction. Source EEW=64 ELMUL=2, Destination EEW=32 ELMUL=1. It turns out that we only use one of the register of the register group. The spec says that "the lowest-numbered part of the source register group can be used." So we cannot use v1 as the destination.
+
+- The destination EEW is greater than the source EEW, the source EMUL is at least 1, and the overlap is in the highest-
+numbered part of the destination register group (e.g., when LMUL=8, `vzext.vf4 v0, v6` is legal, but a source of v0,
+v2, or v4 is not).
+
+`vzext.vf4 v0, v6`: Vector Zero Extend, 假设SEW = 32, Sorece EEW = 8, 指令会从 v6 中读取 8 位无符号整数，并高位补 0，扩展成 32 位，存入 v0.
+
+> For the purpose of determining register group overlap constraints, mask elements have EEW=1.
+
+v0中的mask elements EEW=1
+
+> The overlap constraints are designed to support resumable exceptions in machines without register renaming.
+
+> Any instruction encoding that violates the overlap constraints is reserved
+
+### 5.3 Vector Masking
+> The mask value used to control execution of a masked vector instruction is always supplied by vector register v0. Future vector extensions may provide longer instruction encodings with space for a full mask register specfier.
+
+目前v0是为一个mask register, 将来需要一个位置来specify其他的vector register作为mask operand.
+
+> The destination vector register group for a masked vector instruction cannot overlap the source mask register (v0), unless
+the destination vector register is being written with a mask value (e.g., compares) or the scalar result of a reduction. These instruction encodings are reserved.
+
+一般的指令v0无法overlap
+
+#### 5.3.1 Mask Encoding
+
+### 5.4. Prestart, Active, Inactive, Body, and Tail Element Definitions
+
+## 6. Configuration-Setting Instructions
+> One of the common approaches to handling a large number of elements is "stripmining" where each iteration of a loop handles some number of elements, and the iterations continue until all elements have been processed. The RISC-V vector
+specication provides direct, portable support for this approach. The application specfies the total number of elements to be processed (the application vector length or AVL) as a candidate value for vl, and the hardware responds via a general-
+purpose register with the (frequently smaller) number of elements that the hardware will handle per iteration (stored in vl),
+based on the microarchitectural implementation and the vtype setting. A straightforward loop structure, shown in `Example
+of stripmining and changes to SEW`, depicts the ease with which the code keeps track of the remaining number of elements
+and the amount per iteration handled by hardware.
+
+### 6.1 vtype encoding
+
+```asm
+vsetvl rd, rs1, rs2  
+```
+ - rd：返回实际设置的向量长度（vl）
+ - rs1：期望的向量长度（avl，Application Vector Length）
+ - rs2：向量类型寄存器（vtype，包含 SEW、LMUL、mask/tail 策略等）
+
+### 6.2 AVL encoding
+> When rs1 is not x0, the AVL is an unsigned integer held in the x register specied by rs1, and the new vl value is also written to the x register specied by rd.
+
+> When rs1=x0 but rd!=x0, the maximum unsigned integer value (~0) is used as the AVL, and the resulting VLMAX is written to vl and also to the x register specied by rd.
+
+rs=AVL
+
+> When rs1=x0 and rd=x0, the instruction operates as if the current vector length in vl is used as the AVL, and the resulting value is written to vl, but not to a destination register. 
+This form can only be used when VLMAX and hence vl is not actually changed by the new SEW/LMUL ratio. Use of the instruction with a new SEW/LMUL ratio that would result in a change of VLMAX is reserved. Implementations may set vill in this case.
+
+使用当前 vl 作为 AVL，重新配置 vtype（SEW/LMUL等），但不改变 vl 的值，也不写回任何通用寄存器. 仅改变 SEW/LMUL 等配置，但保持向量长度不变。
+
+### 6.3 Constraints on Setting vl
+
+### 6.4 Example of stripmining and changes to SEW
+![stripmining](image/stripmining-example.png)
+
+## 7. Vector Loads and Stores
+### 7.1 Vector Load/Store Instruction Encoding
+> Vector memory unit-stride and constant-stride operations directly encode EEW of the data to be transferred statically in the instruction to reduce the number of vtype changes when accessing memory in a mixed-width routine. 
+
+Unit-Stride（vle32.v）和 Strided（vlse32.v）指令的后缀数字 （如 32）直接指定了内存中数据的宽度。这个宽度独立于当前的 SEW 配置。这样在处理混合宽度数据的时候不用频繁的 vsetvl 更改SEW。
+
+> Indexed operations use the explicit EEW encoding in the instruction to set the size of the indices used, and use SEW/LMUL to specify the data width.
+
+Indexed 指令（vluxei32.v）的后缀数字（如 32）指定的是索引数组的宽度，而不是数据宽度。数据宽度仍由当前 SEW/LMUL 决定。
+### 7.2 Vector Load/Store Addressing Modes
+> The vector extension supports unit-stride, strided, and indexed (scatter/gather) addressing modes. Vector load/store base registers and strides are taken from the GPR x registers.
+
+> Vector unit-stride operations access elements stored contiguously in memory starting from the base effective address.
+
+> Vector constant-strided operations access the rst memory element at the base effective address, and then access
+subsequent elements at address increments given by the byte offset contained in the x register specied by rs2.
+
+> Vector indexed operations add the contents of each element of the vector offset operand specied by vs2 to the base
+effective address to give the effective address of each element. The data vector register group has EEW=SEW, EMUL=LMUL,
+while the offset vector register group has EEW encoded in the instruction and EMUL=(EEW/SEW)*LMUL.
+
+数据向量的EEW=SEW, 偏移向量的EEW 由指令encoding(`vluxei16.v`) `EMUL=(EEW/SEW)*LMUL` 保证数据向量与偏移向量的元素个数一致，这样EMUL直接由EEW, SEW, LMUL决定。
+
+> The indexed operations can also be used to access elds within a vector of objects, where the vs2 vector holds pointers to the base of
+the objects and the scalar x register holds the offset of the member eld in each object. Supporting this case is why the indexed
+operations were not dened to scale the element indices by the data EEW.
+
+vs2 存每个对象的指针, rs1 存field offset -> rs1 不是有效的EEW。
+
+> If the vector offset elements are narrower than XLEN, they are zero-extended to XLEN before adding to the base effective
+address. If the vector offset elements are wider than XLEN, the least-signicant XLEN bits are used in the address
+calculation. An implementation must raise an illegal instruction exception if the EEW is not supported for offset elements.
+
+`XLEN`: RV32 -> XLEN = 32
+
+> Vector unit-stride and constant-stride memory accesses do not guarantee ordering between individual element accesses.
+The vector indexed load and store memory operations have two forms, ordered and unordered. The indexed-ordered
+variants preserve element ordering on memory accesses.
+
+### 7.3 Vector Load/Store Width Encoding
+> Vector loads and stores have an EEW encoded directly in the instruction. The corresponding EMUL is calculated as EMUL =
+(EEW/SEW)*LMUL. If the EMUL would be out of range (EMUL>8 or EMUL<1/8), the instruction encoding is reserved. 
+> The vector register groups must have legal register specfiers for the selected EMUL, otherwise the instruction encoding is reserved.
+
+假设 EMUL = 4, v4 合法而 v31 不合法
+
+> Vector unit-stride and constant-stride use the EEW/EMUL encoded in the instruction for the data values, while vector indexed loads and stores use the EEW/EMUL encoded in the instruction for the index values and the SEW/LMUL encoded in vtype for the data values.
+
+> Vector loads and stores are encoded using width values that are not claimed by the standard scalar floating-point loads and
+stores.
+
+scalar floating-points loads 已经用一些width来编码，向量则用没有用过的值编码
+
+> Implementations must provide vector loads and stores with EEWs corresponding to all supported SEW settings. Vector load/store encodings for unsupported EEW widths must raise an illegal instruction exception.
+
+当前所有支持的SEW宽度，都应该被load store支持
+
+### 7.4 Vector Unit-Stride Instructions
+> Additional unit-stride mask load and store instructions are provided to transfer mask values to/from memory. These operate similarly to unmasked byte loads or stores (EEW=8), except that the effective vector length is evl=ceil(vl/8) (i.e. EMUL=1), and the destination register is always written with a tail-agnostic policy.
+
+假设掩码为"1100110011001100" 那么evl=ceil(vl/8) 即从内存中load 2B到掩码
+
+### 7.5 Vector Strided Instructions
+> Element accesses within a strided instruction are unordered with respect to each other.
+
+> When rs2=x0, then an implementation is allowed, but not required, to perform fewer memory operations than the number of active elements, and may perform different numbers of memory operations across different dynamic executions of the
+same static instruction.
+
+rs1 is base address, rs2 is byte stride. When byte stride is set to zero.

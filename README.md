@@ -24,6 +24,8 @@ Research task this week: Survey Xuantie C910 to determine: Whether vector instru
 ## RISC-V Vector Extension
 - [x] Saturn Microarchitecture Manual
 - [x] RVV Manual Book
+- [x] Saturn Microarchitecture Manual
+- [x] RVV Manual Book
 - [ ] Arrow: A RISC-V Vector Accelerator for Machine Learning Inference
 - [x] K3
 - [x] Xuantie-910
