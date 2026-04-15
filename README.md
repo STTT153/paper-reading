@@ -17,15 +17,17 @@ Research task this week: Survey Xuantie C910 to determine: Whether vector instru
 
 - **26.3.20**: This week, write tests to determine whether vector chaining occurs in two specific scenarios: (1)Two  nonsequential access instructions chaining. (2) Mask-generation instructions chain with instructions that consume the generated masks.
 
+- **26.3.27**: Test result of vector chaining. Test on Openclaw.
 
+- **26.4.03**: Discover and report some thing regarding simulation: 1. stall of a single vle 2. How vector chaining could occur 3. vmseq -> vadd cause several cycles lost.
+
+- **26.4.10**: Find out that stall of vle is caused by the capacity of VLRB (vector load reorder buffer) as well as coherence overhead of LLC (last level cache).
 
 # Reading List
 
 ## RISC-V Vector Extension
 - [x] Saturn Microarchitecture Manual
-- [x] RVV Manual Book
-- [x] Saturn Microarchitecture Manual
-- [x] RVV Manual Book
+- [x] RVV Specification
 - [ ] Arrow: A RISC-V Vector Accelerator for Machine Learning Inference
 - [x] K3
 - [x] Xuantie-910
