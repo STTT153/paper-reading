@@ -1,27 +1,24 @@
 # Paper Reading
 This repository contains notes on research papers, technical documents, and learning materials, as well as a record of my personal research path. My general interests include Computer Systems, Machine Learning, Computer Architecture, and Networking.
 
-# Research Path
-- **26.1.9**: Surveyed approximate nearest neighbor (ANN) methods. Concluded that this direction may not be suitable; the main bottleneck appears to be memory bandwidth.
+# Reading Methods
+## Pass1 5-10 min
+- What problem it solves?
+- What is the core idea?
+- What is the corelation between the paper and my research?
 
-- **26.1.16**: Surveyed RISC-V extensions. Became particularly interested in compute-in-memory (CIM).
+## Pass2 30-60 min
+- Understanding the design
 
-- **26.1.23**: Read the RISC-V Vector Extension (RVV) specification.
+## Pass3
+- Why it has to designed like this, what if not？
+- Which parameters are selected by imperical?
+- Where is the next bottleneck?
+- What is the missing experiment?
+- Can I adopt its design?
 
-- **26.1.31**: Professor advised to look into Near-Memory Computation (NMC), which might help mitigate cache problems caused by long vectors. Observed that many optimizations happen at runtime rather than compile time.
-Research task this week: Survey Xuantie C910 to determine: Whether vector instructions are executed in-order or out-of-order. At what granularity instructions are executed in-order vs. out-of-order (e.g., instruction, micro-op, vector element).
-
-- **26.3.6**: TODO: Look into the micro-implementation of Ara.
-
-- **26.3.13**: Reporst on the micro-implementation, TODOs: Look into the detail implmentation of Ara (Simulator), wrtie benchmarks of simulators.
-
-- **26.3.20**: This week, write tests to determine whether vector chaining occurs in two specific scenarios: (1)Two  nonsequential access instructions chaining. (2) Mask-generation instructions chain with instructions that consume the generated masks.
-
-- **26.3.27**: Test result of vector chaining. Test on Openclaw.
-
-- **26.4.03**: Discover and report some thing regarding simulation: 1. stall of a single vle 2. How vector chaining could occur 3. vmseq -> vadd cause several cycles lost.
-
-- **26.4.10**: Find out that stall of vle is caused by the capacity of VLRB (vector load reorder buffer) as well as coherence overhead of LLC (last level cache).
+## Result
+Problem, key idea, architecture, bottleneck, evidence, relevance
 
 # Reading List
 
