@@ -28,6 +28,11 @@ Problem, key idea, architecture, bottleneck, evidence, relevance
 - [ ] Arrow: A RISC-V Vector Accelerator for Machine Learning Inference
 - [x] K3
 - [x] Xuantie-910
+- [x] Ara
+- [x] Closer in Gap
+
+## Architecture
+- [ ] DX100: Programmable Data Access Accelerator for Indirection
 
 ## HPC
 - [ ] Communication-Avoiding General Matrix Multiplication within a single GPU
