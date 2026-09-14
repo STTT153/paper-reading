@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="600" viewBox="0 0 960 600">
+<rect width="100%" height="100%" fill="white"/>
+<style>text{font-family:DejaVu Sans,Arial,sans-serif;fill:#263238}.grid{stroke:#dfe5e8;stroke-width:1}.axis{stroke:#455a64;stroke-width:1.5}.scalar{stroke:#d1495b;fill:none;stroke-width:3}.vector{stroke:#2878b5;fill:none;stroke-width:3}.dot-s{fill:#d1495b}.dot-v{fill:#2878b5}</style>
+<text x="480.0" y="32" text-anchor="middle" font-size="22" font-weight="bold">766.femflow_r: kernel time vs data size</text>
+<line class="grid" x1="105" y1="515.00" x2="925" y2="515.00"/>
+<text x="93" y="520.00" text-anchor="end" font-size="13">0.0</text>
+<line class="grid" x1="105" y1="425.00" x2="925" y2="425.00"/>
+<text x="93" y="430.00" text-anchor="end" font-size="13">8966.8</text>
+<line class="grid" x1="105" y1="335.00" x2="925" y2="335.00"/>
+<text x="93" y="340.00" text-anchor="end" font-size="13">17933.5</text>
+<line class="grid" x1="105" y1="245.00" x2="925" y2="245.00"/>
+<text x="93" y="250.00" text-anchor="end" font-size="13">26900.3</text>
+<line class="grid" x1="105" y1="155.00" x2="925" y2="155.00"/>
+<text x="93" y="160.00" text-anchor="end" font-size="13">35867.0</text>
+<line class="grid" x1="105" y1="65.00" x2="925" y2="65.00"/>
+<text x="93" y="70.00" text-anchor="end" font-size="13">44833.8</text>
+<line class="grid" x1="105.00" y1="65" x2="105.00" y2="515"/>
+<text x="105.00" y="540" text-anchor="middle" font-size="13">1K</text>
+<line class="grid" x1="187.00" y1="65" x2="187.00" y2="515"/>
+<text x="187.00" y="540" text-anchor="middle" font-size="13">2K</text>
+<line class="grid" x1="269.00" y1="65" x2="269.00" y2="515"/>
+<text x="269.00" y="540" text-anchor="middle" font-size="13">4K</text>
+<line class="grid" x1="351.00" y1="65" x2="351.00" y2="515"/>
+<text x="351.00" y="540" text-anchor="middle" font-size="13">8K</text>
+<line class="grid" x1="433.00" y1="65" x2="433.00" y2="515"/>
+<text x="433.00" y="540" text-anchor="middle" font-size="13">16K</text>
+<line class="grid" x1="515.00" y1="65" x2="515.00" y2="515"/>
+<text x="515.00" y="540" text-anchor="middle" font-size="13">32K</text>
+<line class="grid" x1="597.00" y1="65" x2="597.00" y2="515"/>
+<text x="597.00" y="540" text-anchor="middle" font-size="13">64K</text>
+<line class="grid" x1="679.00" y1="65" x2="679.00" y2="515"/>
+<text x="679.00" y="540" text-anchor="middle" font-size="13">128K</text>
+<line class="grid" x1="761.00" y1="65" x2="761.00" y2="515"/>
+<text x="761.00" y="540" text-anchor="middle" font-size="13">256K</text>
+<line class="grid" x1="843.00" y1="65" x2="843.00" y2="515"/>
+<text x="843.00" y="540" text-anchor="middle" font-size="13">512K</text>
+<line class="grid" x1="925.00" y1="65" x2="925.00" y2="515"/>
+<text x="925.00" y="540" text-anchor="middle" font-size="13">1M</text>
+<line class="axis" x1="105" y1="515" x2="925" y2="515"/>
+<line class="axis" x1="105" y1="65" x2="105" y2="515"/>
+<text x="515.0" y="572" text-anchor="middle" font-size="16">Data size (elements, log2 scale)</text>
+<text x="25" y="290.0" text-anchor="middle" font-size="16" transform="rotate(-90 25 290.0)">Median time per kernel call (μs)</text>
+<polyline class="scalar" points="105.00,514.98 187.00,514.94 269.00,514.86 351.00,514.66 433.00,514.17 515.00,513.23 597.00,511.22 679.00,504.46 761.00,471.04 843.00,381.77 925.00,194.38"/>
+<circle class="dot-s" cx="105.00" cy="514.98" r="4"/>
+<circle class="dot-s" cx="187.00" cy="514.94" r="4"/>
+<circle class="dot-s" cx="269.00" cy="514.86" r="4"/>
+<circle class="dot-s" cx="351.00" cy="514.66" r="4"/>
+<circle class="dot-s" cx="433.00" cy="514.17" r="4"/>
+<circle class="dot-s" cx="515.00" cy="513.23" r="4"/>
+<circle class="dot-s" cx="597.00" cy="511.22" r="4"/>
+<circle class="dot-s" cx="679.00" cy="504.46" r="4"/>
+<circle class="dot-s" cx="761.00" cy="471.04" r="4"/>
+<circle class="dot-s" cx="843.00" cy="381.77" r="4"/>
+<circle class="dot-s" cx="925.00" cy="194.38" r="4"/>
+<polyline class="vector" points="105.00,514.98 187.00,514.95 269.00,514.86 351.00,514.65 433.00,514.17 515.00,513.19 597.00,511.24 679.00,504.73 761.00,469.85 843.00,364.29 925.00,105.91"/>
+<circle class="dot-v" cx="105.00" cy="514.98" r="4"/>
+<circle class="dot-v" cx="187.00" cy="514.95" r="4"/>
+<circle class="dot-v" cx="269.00" cy="514.86" r="4"/>
+<circle class="dot-v" cx="351.00" cy="514.65" r="4"/>
+<circle class="dot-v" cx="433.00" cy="514.17" r="4"/>
+<circle class="dot-v" cx="515.00" cy="513.19" r="4"/>
+<circle class="dot-v" cx="597.00" cy="511.24" r="4"/>
+<circle class="dot-v" cx="679.00" cy="504.73" r="4"/>
+<circle class="dot-v" cx="761.00" cy="469.85" r="4"/>
+<circle class="dot-v" cx="843.00" cy="364.29" r="4"/>
+<circle class="dot-v" cx="925.00" cy="105.91" r="4"/>
+<line class="scalar" x1="125" y1="83" x2="153" y2="83"/>
+<text x="161" y="88" font-size="14">scalar</text>
+<line class="vector" x1="230" y1="83" x2="258" y2="83"/>
+<text x="266" y="88" font-size="14">vector</text>
+</svg>
